@@ -363,6 +363,11 @@
       <button id="pasteMarkdown"
         class="px-3 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
         title="Paste any markdown content here to auto-convert">📋 Paste Markdown</button>
+      <div class="w-px h-6 bg-slate-200 my-auto mx-1"></div>
+      <button id="askAI"
+        class="px-3 py-1 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-md shadow-sm shadow-blue-500/20 transition-all active:scale-95 flex items-center gap-1.5">
+        <span>✨</span> Ask AI
+      </button>
     </div>
 
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mx-4">
@@ -390,6 +395,52 @@
         </div>
         <div class="px-6 py-3 bg-slate-50 border-t border-slate-100 italic text-[11px] text-slate-400">
           Supports: # Headings, ! Callouts, ? Questions, --- Dividers, [ ] Tasks, **Bold**, *Italic*
+        </div>
+      </div>
+    </div>
+
+    <!-- Ask AI Modal -->
+    <div id="aiModal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-6 modal-overlay">
+      <div class="w-full max-w-lg modal-content rounded-2xl overflow-hidden flex flex-col bg-white">
+        <div
+          class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-blue-50/50 to-indigo-50/50">
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center gap-2">
+            <span class="text-blue-600">✨</span> AI Writing Assistant
+          </h2>
+          <button id="closeAI" class="text-slate-400 hover:text-slate-600 transition-colors">✕</button>
+        </div>
+        <div class="p-6">
+          <div class="relative">
+            <input id="aiPrompt"
+              class="w-full p-4 pr-12 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shadow-inner"
+              placeholder="What should I write? (e.g. 'Create a meeting agenda')" />
+            <div id="aiPulse"
+              class="hidden absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 bg-blue-500 rounded-full animate-ping">
+            </div>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button
+              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">📝
+              Blog Post</button>
+            <button
+              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">📋
+              Lesson Plan</button>
+            <button
+              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">✅
+              Task List</button>
+            <button
+              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">❓
+              MCQ Quiz</button>
+          </div>
+          <div class="mt-6 flex justify-end gap-3">
+            <button id="cancelAI"
+              class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
+            <button id="generateAI"
+              class="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-50">Generate</button>
+          </div>
+        </div>
+        <div id="aiLoadingBar" class="hidden h-1 bg-slate-100 w-full overflow-hidden">
+          <div class="h-full bg-blue-500 transition-all duration-[2000ms] ease-out w-0" id="aiProgress"></div>
         </div>
       </div>
     </div>
@@ -429,6 +480,14 @@
         <div>
           <div class="font-medium text-sm">Question</div>
           <div class="text-[11px] text-slate-400">Multiple choice with answer flow</div>
+        </div>
+      </div>
+      <div class="h-px bg-slate-100 my-1"></div>
+      <div data-action="ai" class="menu-item bg-blue-50/50 hover:bg-blue-100/50">
+        <div class="menu-icon bg-blue-100 text-blue-600">✨</div>
+        <div>
+          <div class="font-medium text-sm text-blue-700">Ask AI</div>
+          <div class="text-[11px] text-blue-500">Generate content with magic</div>
         </div>
       </div>
     </div>
@@ -495,9 +554,10 @@
         if (node.type === 'mcq') {
           const questionNode = node.content?.[0]
           const questionText = questionNode ? questionNode.content?.map(processNode).join('').trim() : 'Question'
-          const options = node.content?.slice(1).map(opt => {
+          const options = node.content?.slice(1).map((opt, idx) => {
             const optText = opt.content?.map(processNode).join('').trim()
-            return `- ${optText}`
+            const isCorrect = node.attrs.correctIndex == (idx + 1)
+            return `- ${isCorrect ? '[x] ' : ''}${optText}`
           }).join('\n')
           return `? ${questionText}\n${options}\n\n`
         }
@@ -587,16 +647,20 @@
           content.classList.add('mcq-content')
           container.append(content)
 
-          // Handle clicks inside the NodeView for better reliability
+          // Handle clicks inside the NodeView
           container.addEventListener('click', e => {
             const option = e.target.closest('.mcq-content > p:not(:first-child)')
             if (!option) return
+
+            // Stop propagation to avoid triggering editor-level selection
+            e.preventDefault()
+            e.stopPropagation()
 
             const index = Array.from(option.parentElement.children).indexOf(option)
             const newIndex = node.attrs.correctIndex == index ? null : index
 
             if (typeof getPos === 'function') {
-              editor.chain().focus().setNodeSelection(getPos()).updateAttributes('mcq', { correctIndex: newIndex }).run()
+              editor.commands.updateAttributes('mcq', { correctIndex: newIndex })
             }
           })
 
@@ -670,7 +734,7 @@
         // 3. MCQ Header
         if (trimmed.startsWith('?')) {
           const qText = trimmed.replace(/^\?\s*/, '')
-          lastBlock = { type: 'mcq', content: [{ type: 'heading', attrs: { level: 3 }, content: parseInline(qText) }] }
+          lastBlock = { type: 'mcq', attrs: { correctIndex: null }, content: [{ type: 'heading', attrs: { level: 3 }, content: parseInline(qText) }] }
           content.push(lastBlock)
           return
         }
@@ -704,11 +768,18 @@
         const bulletMatch = trimmed.match(/^([-*+])\s+(.*)/)
         const orderedMatch = trimmed.match(/^(\d+)\.\s+(.*)/)
         if (bulletMatch || orderedMatch) {
-          const listText = bulletMatch ? bulletMatch[2] : orderedMatch[2]
+          let listText = bulletMatch ? bulletMatch[2] : orderedMatch[2]
+
           if (lastBlock && lastBlock.type === 'mcq') {
+            const isCorrect = listText.startsWith('[x] ')
+            if (isCorrect) {
+              listText = listText.replace(/^\[x\]\s*/, '')
+              lastBlock.attrs.correctIndex = lastBlock.content.length
+            }
             lastBlock.content.push({ type: 'paragraph', content: parseInline(listText) })
             return
           }
+
           const listType = bulletMatch ? 'bulletList' : 'orderedList'
           const item = { type: 'listItem', content: [{ type: 'paragraph', content: parseInline(listText) }] }
           if (content.length > 0 && content[content.length - 1].type === listType) {
@@ -829,6 +900,97 @@
       if (e.key === 'Escape') closeSlashMenu()
     })
 
+    // AI Logic (Integrated with parser)
+    const aiModal = document.getElementById('aiModal')
+    const aiPrompt = document.getElementById('aiPrompt')
+    const generateBtn = document.getElementById('generateAI')
+
+    function openAI() {
+      aiModal.classList.remove('hidden')
+      setTimeout(() => document.body.classList.add('modal-active'), 10)
+      aiPrompt.focus()
+    }
+
+    function closeAI() {
+      document.body.classList.remove('modal-active')
+      setTimeout(() => aiModal.classList.add('hidden'), 300)
+    }
+
+    document.getElementById('askAI').onclick = openAI
+    document.getElementById('closeAI').onclick = closeAI
+    document.getElementById('cancelAI').onclick = closeAI
+
+    // Switching to gemini-2.0-flash based on the documentation provided
+    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`
+
+    async function callGeminiAI(prompt) {
+      const pulse = document.getElementById('aiPulse')
+      const loading = document.getElementById('aiLoadingBar')
+      const progress = document.getElementById('aiProgress')
+
+      pulse.classList.remove('hidden')
+      loading.classList.remove('hidden')
+      progress.style.width = '0%'
+      setTimeout(() => progress.style.width = '100%', 10)
+
+      const systemPrompt = `You are a professional writing assistant.
+      Output ONLY raw Markdown. NEVER use blockquote markers like '>'. 
+      Syntax:
+      - Start a line with '! ' for a Blue Callout box.
+      - Start a line with '? ' for a MCQ block header.
+      - Use bullet points (- ) for options. IMPORTANT: Mark the correct answer with '[x]' (e.g., '- [x] Correct Choice').
+      - Use '# ' to '###### ' for headings.
+      - Use '---' for dividers and '[ ] ' for tasks.`
+
+      try {
+        const response = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${systemPrompt}\n\nPrompt: ${prompt}` }] }]
+          })
+        })
+
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error?.message || 'API Error')
+
+        const result = data.candidates?.[0]?.content?.parts?.[0]?.text
+        if (!result) throw new Error('No response generated')
+
+        pulse.classList.add('hidden')
+        loading.classList.add('hidden')
+        return result
+      } catch (err) {
+        console.error('AI Error:', err)
+        pulse.classList.add('hidden')
+        loading.classList.add('hidden')
+        return `! **AI Error**: ${err.message}`
+      }
+    }
+
+    generateBtn.onclick = async () => {
+      const prompt = aiPrompt.value.trim()
+      if (!prompt) return
+
+      generateBtn.disabled = true
+      const markdown = await callGeminiAI(prompt)
+      const json = parseMarkdownToJSON(markdown)
+      editor.commands.insertContent(json)
+
+      aiPrompt.value = ''
+      generateBtn.disabled = false
+      closeAI()
+    }
+
+    // AI Chips
+    document.querySelectorAll('.ai-chip').forEach(chip => {
+      chip.onclick = () => {
+        aiPrompt.value = chip.textContent.replace(/^.*? /, '')
+        aiPrompt.focus()
+      }
+    })
+
+    // Slash menu trigger update
     slashMenu.onclick = e => {
       const item = e.target.closest('.menu-item')
       if (!item) return
@@ -837,7 +999,9 @@
       const { from } = editor.state.selection
       editor.commands.deleteRange({ from: from - 1, to: from })
 
-      if (action === 'callout') {
+      if (action === 'ai') {
+        openAI()
+      } else if (action === 'callout') {
         editor.chain().focus().insertContent({ type: 'callout', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Attention: This is important' }] }] }).run()
       } else if (action === 'mcq') {
         editor.chain().focus().insertContent({
