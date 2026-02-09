@@ -109,6 +109,32 @@
       background: rgba(59, 130, 246, 0.05) !important;
     }
 
+    /* Task List Styles */
+    ul[data-type="taskList"] {
+      list-style: none;
+      padding: 0;
+    }
+
+    ul[data-type="taskList"] li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin: 8px 0;
+    }
+
+    ul[data-type="taskList"] input[type="checkbox"] {
+      margin-top: 6px;
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+      accent-color: var(--plate-accent);
+    }
+
+    ul[data-type="taskList"] li[data-checked="true"]>div {
+      text-decoration: line-through;
+      color: #94a3b8;
+    }
+
     .ProseMirror .mcq,
     .ProseMirror .callout {
       user-select: none;
@@ -293,6 +319,25 @@
       justify-content: center;
       font-size: 12px;
     }
+
+    /* Modal Styles */
+    .modal-overlay {
+      background: rgba(15, 23, 42, 0.4);
+      backdrop-filter: blur(8px);
+      transition: all 0.3s ease;
+    }
+
+    .modal-content {
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      transform: translateY(20px);
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .modal-active .modal-content {
+      transform: translateY(0);
+    }
   </style>
 </head>
 
@@ -314,10 +359,39 @@
       <button id="h3" class="p-2 hover:bg-slate-100 rounded text-slate-600 font-bold text-sm">H3</button>
       <div class="w-px h-6 bg-slate-200 my-auto mx-1"></div>
       <button class="px-3 py-1 text-sm text-slate-500 hover:text-slate-900">History</button>
+      <div class="w-px h-6 bg-slate-200 my-auto mx-1"></div>
+      <button id="pasteMarkdown"
+        class="px-3 py-1 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+        title="Paste any markdown content here to auto-convert">📋 Paste Markdown</button>
     </div>
 
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mx-4">
       <div id="editor"></div>
+    </div>
+
+    <!-- Markdown Import Modal -->
+    <div id="importModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-6 modal-overlay">
+      <div class="w-full max-w-2xl modal-content rounded-2xl overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-tight">Paste Markdown</h2>
+          <button id="closeModal" class="text-slate-400 hover:text-slate-600 transition-colors">✕</button>
+        </div>
+        <div class="p-6">
+          <textarea id="markdownInput"
+            class="w-full h-64 p-4 text-sm font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
+            placeholder="# Paste your markdown here..."></textarea>
+          <div class="mt-4 flex justify-end gap-3">
+            <button id="cancelImport"
+              class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
+            <button id="doImport"
+              class="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md shadow-blue-500/20 transition-all active:scale-95">✨
+              Convert to Blocks</button>
+          </div>
+        </div>
+        <div class="px-6 py-3 bg-slate-50 border-t border-slate-100 italic text-[11px] text-slate-400">
+          Supports: # Headings, ! Callouts, ? Questions, --- Dividers, [ ] Tasks, **Bold**, *Italic*
+        </div>
+      </div>
     </div>
 
     <div id="slashMenu" class="hidden fixed z-50">
@@ -359,18 +433,99 @@
       </div>
     </div>
 
-    <details class="mt-8 mx-4">
-      <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600">View Node Tree (JSON)</summary>
-      <pre id="debug"
-        class="mt-4 bg-slate-900 text-slate-300 text-[11px] p-6 rounded-xl overflow-auto leading-relaxed"></pre>
-    </details>
+    <div class="mt-8 mx-4 space-y-4">
+      <details class="group">
+        <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600 flex items-center gap-2">
+          <span class="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+          View Live Markdown
+        </summary>
+        <pre id="markdownPreview"
+          class="mt-4 bg-slate-900 text-slate-300 text-[11px] p-6 rounded-xl overflow-auto leading-relaxed border border-slate-800 shadow-2xl"></pre>
+      </details>
+
+      <details class="group">
+        <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600 flex items-center gap-2">
+          <span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
+          View Node Tree (JSON)
+        </summary>
+        <pre id="jsonPreview"
+          class="mt-4 bg-slate-900 text-slate-300 text-[11px] p-6 rounded-xl overflow-auto leading-relaxed border border-slate-800 shadow-2xl"></pre>
+      </details>
+    </div>
   </div>
 
   <script type="module">
-    import { Editor, Node, mergeAttributes } from 'https://esm.sh/@tiptap/core'
+    import { Editor, Node, mergeAttributes, wrappingInputRule } from 'https://esm.sh/@tiptap/core'
     import StarterKit from 'https://esm.sh/@tiptap/starter-kit'
+    import TaskList from 'https://esm.sh/@tiptap/extension-task-list'
+    import TaskItem from 'https://esm.sh/@tiptap/extension-task-item'
+    import Link from 'https://esm.sh/@tiptap/extension-link'
+    import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule'
 
     const STORAGE_KEY = 'tiptap-plate-design'
+
+    // Helper to convert Tiptap JSON to Markdown
+    function serializeToMarkdown(json) {
+      if (!json || !json.content) return ''
+
+      const processNode = (node) => {
+        if (node.type === 'text') {
+          let t = node.text || ''
+          if (node.marks?.some(m => m.type === 'bold')) t = `**${t}**`
+          if (node.marks?.some(m => m.type === 'italic')) t = `*${t}*`
+          if (node.marks?.some(m => m.type === 'code')) t = `\`${t}\``
+          return t
+        }
+
+        if (node.type === 'heading') {
+          const content = node.content?.map(processNode).join('') || ''
+          return '#'.repeat(node.attrs.level) + ' ' + content + '\n\n'
+        }
+
+        if (node.type === 'paragraph') {
+          const content = node.content?.map(processNode).join('') || ''
+          return content + '\n\n'
+        }
+
+        if (node.type === 'callout') {
+          const content = node.content?.map(processNode).join('').trim()
+          return '> 💡 ' + content.replace(/\n\n/g, '\n> ') + '\n\n'
+        }
+
+        if (node.type === 'mcq') {
+          const questionNode = node.content?.[0]
+          const questionText = questionNode ? questionNode.content?.map(processNode).join('').trim() : 'Question'
+          const options = node.content?.slice(1).map(opt => {
+            const optText = opt.content?.map(processNode).join('').trim()
+            return `- ${optText}`
+          }).join('\n')
+          return `? ${questionText}\n${options}\n\n`
+        }
+
+        if (node.type === 'taskList') {
+          return node.content?.map(item => {
+            const checked = item.attrs.checked ? 'x' : ' '
+            const content = item.content?.map(processNode).join('').trim()
+            return `- [${checked}] ${content}`
+          }).join('\n') + '\n\n'
+        }
+
+        if (node.type === 'listItem') {
+          return node.content?.map(processNode).join('').trim()
+        }
+
+        if (node.type === 'bulletList' || node.type === 'orderedList') {
+          const char = node.type === 'bulletList' ? '-' : '1.'
+          return node.content?.map(item => `${char} ${processNode(item)}`).join('\n') + '\n\n'
+        }
+
+        if (node.type === 'horizontalRule') return '---\n\n'
+
+        return node.content?.map(processNode).join('') || ''
+      }
+
+      return json.content.map(processNode).join('').trim()
+    }
 
     const Callout = Node.create({
       name: 'callout',
@@ -383,6 +538,14 @@
           mergeAttributes(HTMLAttributes, { class: 'callout' }),
           ['div', { class: 'callout-icon', contenteditable: 'false' }, '💡'],
           ['div', { class: 'callout-content' }, 0]
+        ]
+      },
+      addInputRules() {
+        return [
+          wrappingInputRule({
+            find: /^(\s*!\s)$/,
+            type: this.type,
+          }),
         ]
       },
     })
@@ -400,6 +563,14 @@
             renderHTML: attributes => ({ 'data-correct-index': attributes.correctIndex }),
           },
         }
+      },
+      addInputRules() {
+        return [
+          wrappingInputRule({
+            find: /^(\s*\?\s)$/,
+            type: this.type,
+          }),
+        ]
       },
       renderHTML({ HTMLAttributes }) {
         return ['div', mergeAttributes(HTMLAttributes, { class: 'mcq' }), 0]
@@ -445,8 +616,134 @@
       }
     })
 
+    // Helper to parse bold, italic, and code marks
+    function parseInline(text) {
+      if (!text) return []
+      const results = []
+      const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3|(`)(.*?)\5/g
+      let match
+      let lastIndex = 0
+
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          results.push({ type: 'text', text: text.substring(lastIndex, match.index) })
+        }
+        const content = match[2] || match[4] || match[6]
+        const marks = []
+        if (match[1]) marks.push({ type: 'bold' })
+        if (match[3]) marks.push({ type: 'italic' })
+        if (match[5]) marks.push({ type: 'code' })
+        results.push({ type: 'text', text: content, marks })
+        lastIndex = regex.lastIndex
+      }
+      if (lastIndex < text.length) {
+        results.push({ type: 'text', text: text.substring(lastIndex) })
+      }
+      return results.length > 0 ? results : [{ type: 'text', text }]
+    }
+
+    // Enhanced Robust Markdown Parser
+    function parseMarkdownToJSON(text) {
+      const lines = text.split('\n')
+      const content = []
+      let lastBlock = null
+
+      lines.forEach(line => {
+        const trimmed = line.trim()
+        if (!trimmed) return
+
+        // 1. Headings
+        const headingMatch = trimmed.match(/^(#{1,6})\s*(.*)/)
+        if (headingMatch) {
+          content.push({ type: 'heading', attrs: { level: headingMatch[1].length }, content: parseInline(headingMatch[2]) })
+          lastBlock = 'heading'
+          return
+        }
+
+        // 2. Horizontal Rule
+        if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+          content.push({ type: 'horizontalRule' })
+          lastBlock = 'hr'
+          return
+        }
+
+        // 3. MCQ Header
+        if (trimmed.startsWith('?')) {
+          const qText = trimmed.replace(/^\?\s*/, '')
+          lastBlock = { type: 'mcq', content: [{ type: 'heading', attrs: { level: 3 }, content: parseInline(qText) }] }
+          content.push(lastBlock)
+          return
+        }
+
+        // 4. Callout Header
+        if (trimmed.startsWith('!')) {
+          const cText = trimmed.replace(/^!\s*/, '')
+          lastBlock = { type: 'callout', content: [{ type: 'paragraph', content: parseInline(cText) }] }
+          content.push(lastBlock)
+          return
+        }
+
+        // 5. Task Items
+        const taskMatch = trimmed.match(/^\[( |x)\]\s*(.*)/i)
+        if (taskMatch) {
+          const item = {
+            type: 'taskItem',
+            attrs: { checked: taskMatch[1].toLowerCase() === 'x' },
+            content: [{ type: 'paragraph', content: parseInline(taskMatch[2]) }]
+          }
+          if (content.length > 0 && content[content.length - 1].type === 'taskList') {
+            content[content.length - 1].content.push(item)
+          } else {
+            content.push({ type: 'taskList', content: [item] })
+          }
+          lastBlock = 'taskList'
+          return
+        }
+
+        // 6. List Items (MCQ or Standard)
+        const bulletMatch = trimmed.match(/^([-*+])\s+(.*)/)
+        const orderedMatch = trimmed.match(/^(\d+)\.\s+(.*)/)
+        if (bulletMatch || orderedMatch) {
+          const listText = bulletMatch ? bulletMatch[2] : orderedMatch[2]
+          if (lastBlock && lastBlock.type === 'mcq') {
+            lastBlock.content.push({ type: 'paragraph', content: parseInline(listText) })
+            return
+          }
+          const listType = bulletMatch ? 'bulletList' : 'orderedList'
+          const item = { type: 'listItem', content: [{ type: 'paragraph', content: parseInline(listText) }] }
+          if (content.length > 0 && content[content.length - 1].type === listType) {
+            content[content.length - 1].content.push(item)
+          } else {
+            content.push({ type: listType, content: [item] })
+          }
+          lastBlock = listType
+          return
+        }
+
+        // Default: Paragraph
+        if (lastBlock && lastBlock.type === 'callout') {
+          lastBlock.content.push({ type: 'paragraph', content: parseInline(trimmed) })
+        } else {
+          content.push({ type: 'paragraph', content: parseInline(trimmed) })
+          lastBlock = 'paragraph'
+        }
+      })
+      return content
+    }
+
     const editor = new Editor({
       element: document.querySelector('#editor'),
+      editorProps: {
+        handlePaste: (view, event) => {
+          const text = event.clipboardData.getData('text/plain')
+          if (text.includes('#') || text.includes('! ') || text.includes('? ') || text.includes('---')) {
+            const json = parseMarkdownToJSON(text)
+            editor.commands.insertContent(json)
+            return true
+          }
+          return false
+        }
+      },
       extensions: [
         StarterKit.configure({
           paragraph: { draggable: true },
@@ -455,7 +752,12 @@
           orderedList: { draggable: true },
           blockquote: { draggable: true },
           codeBlock: { draggable: true },
+          horizontalRule: false, // Disable default to use extended one
         }),
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-500 underline' } }),
+        HorizontalRule.configure({ HTMLAttributes: { class: 'my-8 border-t-2 border-slate-100' } }),
         Callout,
         MCQ
       ],
@@ -467,7 +769,10 @@
       onUpdate: ({ editor }) => {
         const json = editor.getJSON()
         localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
-        document.getElementById('debug').textContent = JSON.stringify(json, null, 2)
+
+        // Update Both Previews
+        document.getElementById('markdownPreview').textContent = serializeToMarkdown(json) || '/* No content */'
+        document.getElementById('jsonPreview').textContent = JSON.stringify(json, null, 2)
       },
     })
 
@@ -553,7 +858,44 @@
     }
 
     document.addEventListener('mousedown', e => { if (!slashMenu.contains(e.target)) closeSlashMenu() })
-    document.getElementById('debug').textContent = JSON.stringify(editor.getJSON(), null, 2)
+
+    // Initial Preview Render
+    const initialJSON = editor.getJSON()
+    document.getElementById('markdownPreview').textContent = serializeToMarkdown(initialJSON) || '/* No content */'
+    document.getElementById('jsonPreview').textContent = JSON.stringify(initialJSON, null, 2)
+
+    // Modal Logic
+    const importModal = document.getElementById('importModal')
+    const markdownInput = document.getElementById('markdownInput')
+
+    document.getElementById('pasteMarkdown').onclick = () => {
+      importModal.classList.remove('hidden')
+      setTimeout(() => document.body.classList.add('modal-active'), 10)
+      markdownInput.focus()
+    }
+
+    const closeModal = () => {
+      document.body.classList.remove('modal-active')
+      setTimeout(() => importModal.classList.add('hidden'), 300)
+    }
+
+    document.getElementById('closeModal').onclick = closeModal
+    document.getElementById('cancelImport').onclick = closeModal
+
+    document.getElementById('doImport').onclick = () => {
+      const text = markdownInput.value
+      if (text.trim()) {
+        const json = parseMarkdownToJSON(text)
+        editor.commands.insertContent(json)
+        markdownInput.value = ''
+        closeModal()
+      }
+    }
+
+    // Close on click outside
+    importModal.onclick = (e) => {
+      if (e.target === importModal) closeModal()
+    }
   </script>
 
 </body>
