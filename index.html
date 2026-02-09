@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>TipTap — Plate Design System</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --plate-bg: #ffffff;
+      --plate-border: #e2e8f0;
+      --plate-hover: #f1f5f9;
+      --plate-accent: #3b82f6;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #1e293b;
+      line-height: 1.6;
+    }
+
+    /* Editor Container */
+    .ProseMirror {
+      outline: none;
+      min-height: 400px;
+      padding: 40px;
+    }
+
+    /* Headings */
+    .ProseMirror h1 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .ProseMirror p {
+      margin: 0.75rem 0;
+    }
+
+    /* Selection & Hover */
+    .ProseMirror>*:hover {
+      background: rgba(241, 245, 249, 0.5);
+      border-radius: 4px;
+      transition: background 0.2s ease;
+    }
+
+    /* Custom Node: Callout */
+    .callout {
+      display: flex;
+      gap: 12px;
+      border: 1px solid var(--plate-border);
+      background: #f8fafc;
+      padding: 16px;
+      border-radius: 8px;
+      margin: 20px 0;
+      transition: border-color 0.2s;
+    }
+
+    .callout:hover {
+      border-color: var(--plate-accent);
+    }
+
+    .callout::before {
+      content: "💡";
+      font-size: 1.2rem;
+    }
+
+    /* Custom Node: MCQ */
+    .mcq {
+      background: white;
+      border: 1px solid var(--plate-border);
+      padding: 24px;
+      border-radius: 12px;
+      margin: 24px 0;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
+      position: relative;
+    }
+
+    /* Set Answer Prompt */
+    .mcq:not([data-correct-index])>.mcq-content::after {
+      content: "💡 Click an option below to set the correct answer";
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-top: 12px;
+      font-style: italic;
+    }
+
+    .mcq-content>*:first-child {
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 1.5rem !important;
+      margin-top: 0 !important;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 16px;
+      font-size: 1.25rem;
+    }
+
+    .mcq-content>p:not(:first-child) {
+      padding: 14px 18px;
+      border: 2px solid #f1f5f9;
+      border-radius: 10px;
+      margin: 10px 0;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      display: flex;
+      align-items: center;
+      background: #ffffff;
+    }
+
+    .mcq-content>p:not(:first-child):hover {
+      background: #f8fafc;
+      border-color: var(--plate-accent);
+      padding-left: 22px;
+    }
+
+    /* Correct Answer Logic (0-based correctIndex) */
+    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2),
+    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3),
+    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4),
+    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5),
+    .mcq[data-correct-index="5"] .mcq-content>p:nth-child(6) {
+      background: #f0fdf4;
+      border-color: #22c55e;
+      color: #15803d;
+      font-weight: 600;
+    }
+
+    /* The Badge */
+    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2)::after,
+    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3)::after,
+    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4)::after,
+    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5)::after,
+    .mcq[data-correct-index="5"] .mcq-content>p:nth-child(6)::after {
+      content: "CORRECT";
+      position: absolute;
+      right: 12px;
+      font-size: 10px;
+      background: #22c55e;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    /* Option Indicator (Radio Button style) */
+    .mcq-content>p:not(:first-child)::before {
+      content: "";
+      width: 20px;
+      height: 20px;
+      border: 2px solid #cbd5e1;
+      border-radius: 50%;
+      margin-right: 14px;
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+
+    /* Filled state for the indicator */
+    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2)::before,
+    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3)::before,
+    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4)::before,
+    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5)::before,
+    .mcq[data-correct-index="5"] .mcq-content>p:nth-child(6)::before {
+      background: #22c55e;
+      border-color: #22c55e;
+      box-shadow: inset 0 0 0 3px #f0fdf4;
+    }
+
+    /* Slash Menu */
+    #slashMenu {
+      background: white;
+      border: 1px solid var(--plate-border);
+      border-radius: 8px;
+      box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+      overflow: hidden;
+      min-width: 220px;
+      padding: 4px;
+    }
+
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .menu-item:hover {
+      background: var(--plate-hover);
+    }
+
+    .menu-icon {
+      width: 28px;
+      height: 28px;
+      background: #f1f5f9;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 flex flex-col items-center py-12">
+
+  <div class="w-full max-w-3xl">
+    <div class="mb-8 px-4">
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900">Document Editor</h1>
+      <p class="text-slate-500 text-sm">Type <code class="bg-slate-200 px-1 rounded">/</code> for commands or use
+        markdown shortcuts.</p>
+    </div>
+
+    <div class="flex gap-1 mb-4 p-1 bg-white border border-slate-200 rounded-lg shadow-sm sticky top-6 z-10 mx-4">
+      <button id="bold" class="p-2 hover:bg-slate-100 rounded text-slate-600 font-bold w-10">B</button>
+      <button id="italic" class="p-2 hover:bg-slate-100 rounded text-slate-600 italic w-10">I</button>
+      <div class="w-px h-6 bg-slate-200 my-auto mx-1"></div>
+      <button id="h1" class="p-2 hover:bg-slate-100 rounded text-slate-600 font-bold text-sm">H1</button>
+      <button id="h2" class="p-2 hover:bg-slate-100 rounded text-slate-600 font-bold text-sm">H2</button>
+      <button id="h3" class="p-2 hover:bg-slate-100 rounded text-slate-600 font-bold text-sm">H3</button>
+      <div class="w-px h-6 bg-slate-200 my-auto mx-1"></div>
+      <button class="px-3 py-1 text-sm text-slate-500 hover:text-slate-900">History</button>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mx-4">
+      <div id="editor"></div>
+    </div>
+
+    <div id="slashMenu" class="hidden fixed z-50">
+      <div class="px-2 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Turn into</div>
+      <div data-action="paragraph" class="menu-item">
+        <div class="menu-icon">¶</div>
+        <div>
+          <div class="font-medium text-sm">Text</div>
+          <div class="text-[11px] text-slate-400">Just start writing...</div>
+        </div>
+      </div>
+      <div data-action="h1" class="menu-item">
+        <div class="menu-icon">H1</div>
+        <div>
+          <div class="font-medium text-sm">Heading 1</div>
+          <div class="text-[11px] text-slate-400">Large section heading</div>
+        </div>
+      </div>
+      <div data-action="h2" class="menu-item">
+        <div class="menu-icon">H2</div>
+        <div>
+          <div class="font-medium text-sm">Heading 2</div>
+          <div class="text-[11px] text-slate-400">Medium section heading</div>
+        </div>
+      </div>
+      <div data-action="callout" class="menu-item">
+        <div class="menu-icon">💡</div>
+        <div>
+          <div class="font-medium text-sm">Callout</div>
+          <div class="text-[11px] text-slate-400">Highlight important info</div>
+        </div>
+      </div>
+      <div data-action="mcq" class="menu-item">
+        <div class="menu-icon">?</div>
+        <div>
+          <div class="font-medium text-sm">Question</div>
+          <div class="text-[11px] text-slate-400">Multiple choice with answer flow</div>
+        </div>
+      </div>
+    </div>
+
+    <details class="mt-8 mx-4">
+      <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600">View Node Tree (JSON)</summary>
+      <pre id="debug"
+        class="mt-4 bg-slate-900 text-slate-300 text-[11px] p-6 rounded-xl overflow-auto leading-relaxed"></pre>
+    </details>
+  </div>
+
+  <script type="module">
+    import { Editor, Node, mergeAttributes } from 'https://esm.sh/@tiptap/core'
+    import StarterKit from 'https://esm.sh/@tiptap/starter-kit'
+
+    const STORAGE_KEY = 'tiptap-plate-design'
+
+    const Callout = Node.create({
+      name: 'callout',
+      group: 'block',
+      content: 'block+',
+      renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { class: 'callout' }), 0] },
+    })
+
+    const MCQ = Node.create({
+      name: 'mcq',
+      group: 'block',
+      content: 'block+',
+      addAttributes() {
+        return {
+          correctIndex: {
+            default: null,
+            parseHTML: element => element.getAttribute('data-correct-index'),
+            renderHTML: attributes => ({ 'data-correct-index': attributes.correctIndex }),
+          },
+        }
+      },
+      renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { class: 'mcq' }), 0]
+      },
+      addNodeView() {
+        return ({ node, getPos, editor }) => {
+          const container = document.createElement('div')
+          container.classList.add('mcq')
+          if (node.attrs.correctIndex !== null) {
+            container.setAttribute('data-correct-index', node.attrs.correctIndex)
+          }
+
+          const content = document.createElement('div')
+          content.classList.add('mcq-content')
+          container.append(content)
+
+          // Handle clicks inside the NodeView for better reliability
+          container.addEventListener('click', e => {
+            const option = e.target.closest('.mcq-content > p:not(:first-child)')
+            if (!option) return
+
+            const index = Array.from(option.parentElement.children).indexOf(option)
+            const newIndex = node.attrs.correctIndex == index ? null : index
+
+            if (typeof getPos === 'function') {
+              editor.chain().focus().setNodeSelection(getPos()).updateAttributes('mcq', { correctIndex: newIndex }).run()
+            }
+          })
+
+          return {
+            dom: container,
+            contentDOM: content,
+            update: updatedNode => {
+              if (updatedNode.type.name !== 'mcq') return false
+              if (updatedNode.attrs.correctIndex !== node.attrs.correctIndex) {
+                container.setAttribute('data-correct-index', updatedNode.attrs.correctIndex)
+                node.attrs.correctIndex = updatedNode.attrs.correctIndex // Update local ref
+              }
+              return true
+            },
+          }
+        }
+      }
+    })
+
+    const editor = new Editor({
+      element: document.querySelector('#editor'),
+      extensions: [StarterKit, Callout, MCQ],
+      content: JSON.parse(localStorage.getItem(STORAGE_KEY) || JSON.stringify({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Type / to see the magic...' }] }]
+      })),
+      autofocus: 'end',
+      onUpdate: ({ editor }) => {
+        const json = editor.getJSON()
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
+        document.getElementById('debug').textContent = JSON.stringify(json, null, 2)
+      },
+    })
+
+    // Toolbar Actions
+    document.getElementById('bold').onclick = () => editor.chain().focus().toggleBold().run()
+    document.getElementById('italic').onclick = () => editor.chain().focus().toggleItalic().run()
+    document.getElementById('h1').onclick = () => editor.chain().focus().toggleHeading({ level: 1 }).run()
+    document.getElementById('h2').onclick = () => editor.chain().focus().toggleHeading({ level: 2 }).run()
+    document.getElementById('h3').onclick = () => editor.chain().focus().toggleHeading({ level: 3 }).run()
+
+    /* --- MCQ Answer Selection Logic (Moved to NodeView for reliability) --- */
+
+    /* --- Logic for Slash Menu and Markdown (unchanged but integrated) --- */
+    const slashMenu = document.getElementById('slashMenu')
+    let slashActive = false
+
+    function openSlashMenu() {
+      const { from } = editor.state.selection
+      const coords = editor.view.coordsAtPos(from)
+      slashMenu.style.top = `${coords.bottom + 8}px`
+      slashMenu.style.left = `${coords.left}px`
+      slashMenu.classList.remove('hidden')
+      slashActive = true
+    }
+
+    function closeSlashMenu() {
+      slashMenu.classList.add('hidden')
+      slashActive = false
+    }
+
+    editor.view.dom.addEventListener('keydown', e => {
+      if (e.key === '/') {
+        setTimeout(openSlashMenu, 0)
+      }
+      if (e.key === 'Escape') closeSlashMenu()
+    })
+
+    slashMenu.onclick = e => {
+      const item = e.target.closest('.menu-item')
+      if (!item) return
+      const action = item.dataset.action
+
+      const { from } = editor.state.selection
+      editor.commands.deleteRange({ from: from - 1, to: from })
+
+      if (action === 'callout') {
+        editor.chain().focus().insertContent({ type: 'callout', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Attention: This is important' }] }] }).run()
+      } else if (action === 'mcq') {
+        editor.chain().focus().insertContent({
+          type: 'mcq',
+          content: [
+            { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'What is Plate.js?' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'A) A plugin-based editor' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'B) A cooking library' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'C) A CSS framework' }] }
+          ]
+        }).run()
+      } else if (action === 'paragraph') {
+        editor.chain().focus().setParagraph().run()
+      } else if (action === 'h1' || action === 'h2') {
+        editor.chain().focus().toggleHeading({ level: action === 'h1' ? 1 : 2 }).run()
+      }
+      closeSlashMenu()
+    }
+
+    document.addEventListener('mousedown', e => { if (!slashMenu.contains(e.target)) closeSlashMenu() })
+    document.getElementById('debug').textContent = JSON.stringify(editor.getJSON(), null, 2)
+  </script>
+
+</body>
+
+</html>
