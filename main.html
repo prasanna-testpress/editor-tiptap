@@ -8,7 +8,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  
+
 </head>
 
 <body class="bg-gray-50 flex flex-col items-center py-12">
@@ -188,442 +188,896 @@
   </div>
 
   <script type="module">
-  import { Editor, Node, mergeAttributes,Extension  } from 'https://esm.sh/@tiptap/core'
-  import StarterKit from 'https://esm.sh/@tiptap/starter-kit'
-  import TaskList from 'https://esm.sh/@tiptap/extension-task-list'
-  import TaskItem from 'https://esm.sh/@tiptap/extension-task-item'
-  import Link from 'https://esm.sh/@tiptap/extension-link'
-  import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule'
-  import markdownit from 'https://esm.sh/markdown-it'
-  import { Plugin } from 'https://esm.sh/prosemirror-state'
-  import Suggestion from 'https://esm.sh/@tiptap/suggestion'
+    import { Editor, Node, mergeAttributes, Extension } from 'https://esm.sh/@tiptap/core'
+    import StarterKit from 'https://esm.sh/@tiptap/starter-kit'
+    import TaskList from 'https://esm.sh/@tiptap/extension-task-list'
+    import TaskItem from 'https://esm.sh/@tiptap/extension-task-item'
+    import Link from 'https://esm.sh/@tiptap/extension-link'
+    import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule'
+    import markdownit from 'https://esm.sh/markdown-it'
+    import { Plugin } from 'https://esm.sh/prosemirror-state'
+    import Suggestion from 'https://esm.sh/@tiptap/suggestion'
+
+    const GEMINI_API_KEY = 'AIzaSyCBz5MagPGpS36KsxibvwE7lNOkmdA4eqo'
+    // const GEMINI_API_KEY = 'AIzaSyAYNWEpCraR8YSmQ4QXC5HyPbXYfvBLSVg'
+    const GEMINI_URL =
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`
 
 
-  const md = markdownit({ html: false, linkify: true })
+    const md = markdownit({ html: false, linkify: true })
 
-  const STORAGE_KEY = 'tiptap-plate-design'
+    const STORAGE_KEY = 'tiptap-plate-design'
 
-  /* -------------------- CUSTOM BLOCK PARSER -------------------- */
+    /* -------------------- CUSTOM BLOCK PARSER -------------------- */
 
-  function transformCustomMarkdown(text) {
-    const lines = text.split('\n')
-    let html = ''
-    let i = 0
+    function markdownToJSON(text) {
+      const lines = text.split('\n')
+      const content = []
+      let i = 0
 
-    while (i < lines.length) {
-      const line = lines[i]
+      while (i < lines.length) {
+        const line = lines[i].trim()
 
-      /* ---- CALLOUT ---- */
-      if (line.startsWith('! ')) {
-        html += `<div data-type="callout">`
-        while (i < lines.length && lines[i].startsWith('! ')) {
-          html += `<p>${lines[i].slice(2)}</p>`
+        if (!line) {
           i++
+          continue
         }
-        html += `</div>`
-        continue
-      }
 
-      /* ---- MCQ ---- */
-      if (line.startsWith('? ')) {
-        const question = line.slice(2)
-        let options = []
-        let correctIndex = null
-        i++
+        /* ---------- HEADING ---------- */
+        if (line.startsWith('#')) {
+          const level = line.match(/^#+/)[0].length
+          const text = line.replace(/^#+\s*/, '')
 
-        while (i < lines.length && /^\(( |x|X)\)\s/.test(lines[i])) {
-          const match = lines[i].match(/^\(( |x|X)\)\s+(.*)/)
-          if (match) {
-            if (match[1].toLowerCase() === 'x') {
-              correctIndex = options.length + 1
-            }
-            options.push(match[2])
+          content.push({
+            type: 'heading',
+            attrs: { level },
+            content: [{ type: 'text', text }]
+          })
+
+          i++
+          continue
+        }
+
+        /* ---------- CALLOUT ---------- */
+        if (line.startsWith('! ')) {
+          const calloutContent = []
+
+          while (i < lines.length && lines[i].startsWith('! ')) {
+            calloutContent.push({
+              type: 'paragraph',
+              content: [{ type: 'text', text: lines[i].slice(2) }]
+            })
+            i++
           }
-          i++
+
+          content.push({
+            type: 'callout',
+            content: calloutContent
+          })
+
+          continue
         }
 
-        html += `<div data-type="mcq" data-correct-index="${correctIndex ?? ''}">`
-        html += `<h2>${question}</h2>`
-        options.forEach(opt => {
-          html += `<p>${opt}</p>`
+        /* ---------- MCQ ---------- */
+        if (line.startsWith('? ')) {
+          const question = line.slice(2)
+          const options = []
+          let correctIndex = null
+          i++
+
+          while (i < lines.length && /^\(( |x|X)\)\s/.test(lines[i])) {
+            const match = lines[i].match(/^\(( |x|X)\)\s+(.*)/)
+            if (match) {
+              if (match[1].toLowerCase() === 'x') {
+                correctIndex = options.length + 1
+              }
+              options.push({
+                type: 'paragraph',
+                content: [{ type: 'text', text: match[2] }]
+              })
+            }
+            i++
+          }
+
+          content.push({
+            type: 'mcq',
+            attrs: { correctIndex },
+            content: [
+              {
+                type: 'heading',
+                attrs: { level: 2 },
+                content: [{ type: 'text', text: question }]
+              },
+              ...options
+            ]
+          })
+
+          continue
+        }
+
+        /* ---------- BULLET LIST ---------- */
+        if (line.startsWith('- ')) {
+          const items = []
+
+          while (i < lines.length && lines[i].startsWith('- ')) {
+            items.push({
+              type: 'listItem',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: lines[i].slice(2) }]
+                }
+              ]
+            })
+            i++
+          }
+
+          content.push({
+            type: 'bulletList',
+            content: items
+          })
+
+          continue
+        }
+
+        /* ---------- TASK LIST ---------- */
+        if (line.startsWith('[ ] ')) {
+          content.push({
+            type: 'taskList',
+            content: [
+              {
+                type: 'taskItem',
+                attrs: { checked: false },
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: line.slice(4) }]
+                  }
+                ]
+              }
+            ]
+          })
+
+          i++
+          continue
+        }
+
+        /* ---------- HORIZONTAL RULE ---------- */
+        if (line === '---') {
+          content.push({ type: 'horizontalRule' })
+          i++
+          continue
+        }
+
+        /* ---------- PARAGRAPH ---------- */
+        content.push({
+          type: 'paragraph',
+          content: [{ type: 'text', text: line }]
         })
-        html += `</div>`
-        continue
+
+        i++
       }
 
-      html += md.render(line)
-      i++
+      return {
+        type: 'doc',
+        content
+      }
     }
 
-    return html
-  }
+    /* -------------------- CALLOUT NODE -------------------- */
 
-  /* -------------------- CALLOUT NODE -------------------- */
+    const Callout = Node.create({
+      name: 'callout',
+      group: 'block',
+      content: 'block+',
+      draggable: true,
 
-  const Callout = Node.create({
-    name: 'callout',
-    group: 'block',
-    content: 'block+',
-    draggable: true,
+      parseHTML() {
+        return [{ tag: 'div[data-type="callout"]' }]
+      },
 
-    parseHTML() {
-      return [{ tag: 'div[data-type="callout"]' }]
-    },
+      renderHTML({ HTMLAttributes }) {
+        return [
+          'div',
+          mergeAttributes(HTMLAttributes, { class: 'callout' }),
+          ['div', { class: 'callout-icon', contenteditable: 'false' }, '💡'],
+          ['div', { class: 'callout-content' }, 0],
+        ]
+      },
+    })
 
-    renderHTML({ HTMLAttributes }) {
-      return [
-        'div',
-        mergeAttributes(HTMLAttributes, { class: 'callout' }),
-        ['div', { class: 'callout-icon', contenteditable: 'false' }, '💡'],
-        ['div', { class: 'callout-content' }, 0],
-      ]
-    },
-  })
+    /* -------------------- MCQ NODE -------------------- */
 
-  /* -------------------- MCQ NODE -------------------- */
+    const MCQ = Node.create({
+      name: 'mcq',
+      group: 'block',
+      content: 'heading paragraph+',
+      draggable: true,
 
-  const MCQ = Node.create({
-    name: 'mcq',
-    group: 'block',
-    content: 'heading paragraph+',
-    draggable: true,
-
-    addAttributes() {
-      return {
-        correctIndex: {
-          default: null,
-          parseHTML: el => el.getAttribute('data-correct-index'),
-          renderHTML: attrs =>
-            attrs.correctIndex
-              ? { 'data-correct-index': attrs.correctIndex }
-              : {},
-        },
-      }
-    },
-
-    parseHTML() {
-      return [{ tag: 'div[data-type="mcq"]' }]
-    },
-
-    renderHTML({ HTMLAttributes }) {
-      return ['div', mergeAttributes(HTMLAttributes, { class: 'mcq' }), 0]
-    },
-
-    addNodeView() {
-      return ({ node, editor }) => {
-        const container = document.createElement('div')
-        container.classList.add('mcq')
-
-        if (node.attrs.correctIndex) {
-          container.setAttribute('data-correct-index', node.attrs.correctIndex)
+      addAttributes() {
+        return {
+          correctIndex: {
+            default: null,
+            parseHTML: el => el.getAttribute('data-correct-index'),
+            renderHTML: attrs =>
+              attrs.correctIndex
+                ? { 'data-correct-index': attrs.correctIndex }
+                : {},
+          },
         }
+      },
 
-        const content = document.createElement('div')
-        content.classList.add('mcq-content')
-        container.append(content)
+      parseHTML() {
+        return [{ tag: 'div[data-type="mcq"]' }]
+      },
 
-        container.addEventListener('click', e => {
-          const option = e.target.closest('.mcq-content > p:not(:first-child)')
-          if (!option) return
+      renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { class: 'mcq' }), 0]
+      },
 
-          const index = Array.from(option.parentElement.children).indexOf(option)
-          const newIndex =
-            node.attrs.correctIndex == index ? null : index
+      addNodeView() {
+        return ({ node, editor }) => {
+          const container = document.createElement('div')
+          container.classList.add('mcq')
 
-          editor.commands.updateAttributes('mcq', {
-            correctIndex: newIndex,
+          if (node.attrs.correctIndex) {
+            container.setAttribute('data-correct-index', node.attrs.correctIndex)
+          }
+
+          const content = document.createElement('div')
+          content.classList.add('mcq-content')
+          container.append(content)
+
+          container.addEventListener('click', e => {
+            const option = e.target.closest('.mcq-content > p:not(:first-child)')
+            if (!option) return
+
+            const index = Array.from(option.parentElement.children).indexOf(option)
+            const newIndex =
+              node.attrs.correctIndex == index ? null : index
+
+            editor.commands.updateAttributes('mcq', {
+              correctIndex: newIndex,
+            })
+          })
+
+          return {
+            dom: container,
+            contentDOM: content,
+            update(updatedNode) {
+              if (updatedNode.type.name !== 'mcq') return false
+
+              if (updatedNode.attrs.correctIndex) {
+                container.setAttribute(
+                  'data-correct-index',
+                  updatedNode.attrs.correctIndex
+                )
+              } else {
+                container.removeAttribute('data-correct-index')
+              }
+
+              return true
+            },
+          }
+        }
+      },
+    })
+
+
+    const slashItems = [
+      {
+        title: 'Heading 1',
+        command: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run()
+        }
+      },
+      {
+        title: 'Heading 2',
+        command: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run()
+        }
+      },
+      {
+        title: 'Paragraph',
+        command: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range).setParagraph().run()
+        }
+      },
+      {
+        title: 'Callout',
+        command: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range).insertContent({
+            type: 'callout',
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: 'Important note...' }] }
+            ]
+          }).run()
+        }
+      },
+      {
+        title: 'MCQ',
+        command: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range)
+            .insertContent({
+              type: 'mcq',
+              attrs: { correctIndex: null },
+              content: [
+                {
+                  type: 'heading',
+                  attrs: { level: 2 },
+                  content: [{ type: 'text', text: 'Question?' }]
+                },
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Option A' }]
+                },
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Option B' }]
+                }
+              ]
+            })
+            .run()
+        }
+      },
+      {
+  title: 'Ask AI',
+  command: ({ editor, range }) => {
+    // Remove the "/" trigger
+    editor.chain().focus().deleteRange(range).run()
+
+    const { state } = editor
+    const { $from } = state.selection
+
+    // Get entire paragraph node
+    const paragraphNode = $from.parent
+
+    if (paragraphNode && paragraphNode.type.name === 'paragraph') {
+      const text = paragraphNode.textContent.trim()
+
+      if (text.length > 0) {
+        // Get exact paragraph position
+        const from = $from.before()
+        const to = $from.after()
+
+        // Delete full paragraph
+        editor.chain()
+          .focus()
+          .deleteRange({ from, to })
+          .run()
+
+        // Open Inline AI with captured text
+        openInlineAI(text)
+
+        return
+      }
+    }
+
+    // If empty paragraph → just open AI
+    openInlineAI()
+  }
+}
+
+    ]
+
+    /* -------------------- GLOBAL SHORTCUTS -------------------- */
+    document.addEventListener('keydown', e => {
+      // Ctrl+G or Cmd+G to open Inline AI
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        openInlineAI()
+      }
+    })
+
+    const SlashCommand = Extension.create({
+      name: 'slash-command',
+
+      addProseMirrorPlugins() {
+        return [
+          Suggestion({
+            editor: this.editor,
+            char: '/',
+            items: ({ query }) => {
+              return slashItems.filter(item =>
+                item.title.toLowerCase().includes(query.toLowerCase())
+              )
+            },
+            command: ({ editor, range, props }) => {
+              props.command({ editor, range })
+            },
+            render: () => {
+              let popup
+              let selectedIndex = 0
+              let suggestionProps
+
+              const renderPopup = () => {
+                if (!popup) return
+                popup.innerHTML = ''
+
+                if (suggestionProps.items.length === 0) {
+                  popup.classList.add('hidden')
+                  return
+                }
+                popup.classList.remove('hidden')
+
+                suggestionProps.items.forEach((item, index) => {
+                  const el = document.createElement('div')
+                  el.className = `px-3 py-2 cursor-pointer rounded transition-colors ${index === selectedIndex ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100 text-slate-700'
+                    }`
+
+                  const content = document.createElement('div')
+                  content.className = 'flex items-center gap-2'
+
+                  // Add icon based on command title (simplified mapping)
+                  let icon = '⚡'
+                  if (item.title === 'Heading 1') icon = 'H1'
+                  if (item.title === 'Heading 2') icon = 'H2'
+                  if (item.title === 'Paragraph') icon = '¶'
+                  if (item.title === 'Callout') icon = '💡'
+                  if (item.title === 'MCQ') icon = '?'
+                  if (item.title === 'Ask AI') icon = '✨'
+
+                  content.innerHTML = `<span class="w-5 text-center text-xs font-bold opacity-70">${icon}</span> <span class="text-sm font-medium">${item.title}</span>`
+
+                  el.appendChild(content)
+                  el.onclick = () => item.command(suggestionProps)
+                  popup.appendChild(el)
+                })
+              }
+
+              return {
+                onStart: props => {
+                  suggestionProps = props
+                  selectedIndex = 0
+                  popup = document.createElement('div')
+                  popup.className = 'slash-popup bg-white shadow-xl border border-slate-200 rounded-xl p-1.5 z-[200] flex flex-col min-w-[200px] overflow-hidden'
+
+                  renderPopup()
+
+                  document.body.appendChild(popup)
+
+                  const rect = props.clientRect()
+                  popup.style.position = 'absolute'
+                  popup.style.top = (rect.bottom + 10) + 'px'
+                  popup.style.left = rect.left + 'px'
+                },
+
+                onUpdate(props) {
+                  suggestionProps = props
+                  selectedIndex = 0
+
+                  if (!popup) return
+
+                  renderPopup()
+
+                  const rect = props.clientRect()
+                  popup.style.top = (rect.bottom + 10) + 'px'
+                  popup.style.left = rect.left + 'px'
+                },
+
+                onKeyDown(props) {
+                  if (props.event.key === 'ArrowUp') {
+                    selectedIndex = (selectedIndex + suggestionProps.items.length - 1) % suggestionProps.items.length
+                    renderPopup()
+                    return true
+                  }
+                  if (props.event.key === 'ArrowDown') {
+                    selectedIndex = (selectedIndex + 1) % suggestionProps.items.length
+                    renderPopup()
+                    return true
+                  }
+                  if (props.event.key === 'Enter') {
+                    const item = suggestionProps.items[selectedIndex]
+                    if (item) {
+                      item.command(suggestionProps)
+                    }
+                    return true
+                  }
+                  return false
+                },
+
+                onExit() {
+                  if (popup) popup.remove()
+                  popup = null
+                }
+              }
+            }
+          })
+        ]
+      }
+    })
+
+    /* -------------------- SAFE STORAGE LOAD -------------------- */
+
+    let initialContent = null
+
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        initialContent = JSON.parse(saved)
+      }
+    } catch (e) {
+      console.warn('Corrupted storage, resetting...')
+      localStorage.removeItem(STORAGE_KEY)
+    }
+
+    /* -------------------- EDITOR -------------------- */
+
+    const editor = new Editor({
+      element: document.querySelector('#editor'),
+      extensions: [
+        StarterKit,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+        Link.configure({ openOnClick: false }),
+        HorizontalRule,
+        Callout,
+        MCQ,
+        SlashCommand,
+      ],
+      content: initialContent || {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Type / or paste Markdown...' }
+            ]
+          }
+        ]
+      },
+      autofocus: 'end',
+      onUpdate: ({ editor }) => {
+        const json = editor.getJSON()
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
+
+        document.getElementById('jsonPreview').textContent =
+          JSON.stringify(json, null, 2)
+
+        document.getElementById('markdownPreview').textContent =
+          generateMarkdown(json) || '/* No content */'
+      },
+    })
+
+    /* -------------------- INITIAL DEBUG RENDER -------------------- */
+
+    document.getElementById('jsonPreview').textContent =
+      JSON.stringify(editor.getJSON(), null, 2)
+
+    document.getElementById('markdownPreview').textContent =
+      generateMarkdown(editor.getJSON()) || '/* No content */'
+
+    editor.registerPlugin(
+      new Plugin({
+        props: {
+          handlePaste(view, event) {
+            const text = event.clipboardData?.getData('text/plain')
+            if (!text) return false
+
+            event.preventDefault()
+
+            const json = markdownToJSON(text)
+            editor.chain().focus().insertContent(json.content).run()
+
+
+            return true
+          }
+        }
+      })
+    )
+
+
+
+    /* -------------------- AI INSERT -------------------- */
+
+    async function insertAI(markdown) {
+      const clean = normalizeMarkdown(markdown)
+      const json = markdownToJSON(clean)
+      editor.chain().focus().insertContent(json.content).run()
+    }
+
+
+    /* -------------------- TOOLBAR -------------------- */
+
+    document.getElementById('bold').onclick =
+      () => editor.chain().focus().toggleBold().run()
+    document.getElementById('italic').onclick =
+      () => editor.chain().focus().toggleItalic().run()
+    document.getElementById('h1').onclick =
+      () => editor.chain().focus().toggleHeading({ level: 1 }).run()
+    document.getElementById('h2').onclick =
+      () => editor.chain().focus().toggleHeading({ level: 2 }).run()
+    document.getElementById('h3').onclick =
+      () => editor.chain().focus().toggleHeading({ level: 3 }).run()
+
+    /* -------------------- AI MODAL LOGIC -------------------- */
+    const aiModal = document.getElementById('aiModal')
+    const aiPrompt = document.getElementById('aiPrompt')
+    const generateBtn = document.getElementById('generateAI')
+
+    function openAI() {
+      aiModal.classList.remove('hidden')
+      setTimeout(() => document.body.classList.add('modal-active'), 10)
+      aiPrompt.focus()
+    }
+
+    function closeAI() {
+      document.body.classList.remove('modal-active')
+      setTimeout(() => aiModal.classList.add('hidden'), 300)
+    }
+
+    document.getElementById('askAI').onclick = openAI
+    document.getElementById('closeAI').onclick = closeAI
+    document.getElementById('cancelAI').onclick = closeAI
+
+    /* -------------------- INLINE AI LOGIC -------------------- */
+    const inlineAIBar = document.getElementById('inlineAIBar')
+    const inlineAIPrompt = document.getElementById('inlineAIPrompt')
+    const inlineAIGenerate = document.getElementById('inlineAIGenerate')
+
+    function openInlineAI(prefill = '') {
+      const { selection } = editor.state
+      const { from, to, empty } = selection
+      const coords = editor.view.coordsAtPos(from)
+
+      if (prefill) {
+        inlineAIPrompt.value = prefill
+      } else if (!empty) {
+        inlineAIPrompt.value = editor.state.doc.textBetween(from, to, ' ')
+      }
+
+      inlineAIBar.classList.remove('hidden')
+      inlineAIBar.style.position = 'absolute'
+      const barHeight = inlineAIBar.offsetHeight || 44
+      const spaceBelow = window.innerHeight - coords.bottom
+
+      const top = coords.top + window.scrollY
+      const bottom = coords.bottom + window.scrollY
+      const left = coords.left + window.scrollX
+
+      if (spaceBelow < barHeight + 20) {
+        inlineAIBar.style.top = `${top - barHeight - 12}px`
+        inlineAIBar.style.transformOrigin = 'bottom left'
+      } else {
+        inlineAIBar.style.top = `${bottom + 12}px`
+        inlineAIBar.style.transformOrigin = 'top left'
+      }
+
+      const leftPos = Math.max(20, Math.min(left - 20, document.body.scrollWidth - 420))
+      inlineAIBar.style.left = `${leftPos}px`
+      inlineAIPrompt.focus()
+
+      if (inlineAIPrompt.value) inlineAIPrompt.select()
+    }
+
+    function closeInlineAI() {
+      inlineAIBar.classList.add('hidden')
+      inlineAIPrompt.value = ''
+    }
+
+    async function callGeminiAI(prompt) {
+      /* -------------------- API CALL -------------------- */
+      const pulse = document.getElementById('aiPulse')
+      const loading = document.getElementById('aiLoadingBar')
+      const progress = document.getElementById('aiProgress')
+
+      pulse.classList.remove('hidden')
+      loading.classList.remove('hidden')
+      progress.style.width = '0%'
+      setTimeout(() => progress.style.width = '100%', 10)
+
+      const systemPrompt = `
+You are a professional writing assistant.
+
+STRICT OUTPUT RULES (VERY IMPORTANT):
+
+1. Output ONLY raw Markdown.
+2. Never use HTML.
+3. Never use blockquotes (>).
+4. Never wrap callouts or MCQs inside bullet lists.
+5. Callouts must be standalone lines starting EXACTLY with:
+   ! Your callout text
+6. MCQ must follow this EXACT structure:
+
+? Question text
+( ) Option 1
+( ) Option 2
+(x) Correct option
+( ) Option 4
+
+7. Do NOT prefix callouts or MCQ lines with '*' or '-'.
+8. Do NOT indent MCQ or callout lines.
+9. Use '-' for bullet lists.
+10. Use [ ] for task lists.
+11. Use # for headings.
+12. Use --- for horizontal divider.
+
+IMPORTANT:
+Callouts and MCQs must NOT be inside bullet lists.
+They must be standalone blocks.
+`
+
+
+      try {
+        const response = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: systemPrompt + "\n\nUser Prompt:\n" + prompt }
+                ]
+              }
+            ]
           })
         })
 
-        return {
-          dom: container,
-          contentDOM: content,
-          update(updatedNode) {
-            if (updatedNode.type.name !== 'mcq') return false
+        const data = await response.json()
 
-            if (updatedNode.attrs.correctIndex) {
-              container.setAttribute(
-                'data-correct-index',
-                updatedNode.attrs.correctIndex
-              )
-            } else {
-              container.removeAttribute('data-correct-index')
-            }
-
-            return true
-          },
+        if (!response.ok) {
+          throw new Error(data.error?.message || 'AI Error')
         }
-      }
-    },
-  })
 
+        const result =
+          data.candidates?.[0]?.content?.parts?.[0]?.text || ''
 
-const slashItems = [
-  {
-    title: 'Heading 1',
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run()
-    }
-  },
-  {
-    title: 'Heading 2',
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run()
-    }
-  },
-  {
-    title: 'Paragraph',
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).setParagraph().run()
-    }
-  },
-  {
-    title: 'Callout',
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).insertContent({
-        type: 'callout',
-        content: [
-          { type: 'paragraph', content: [{ type: 'text', text: 'Important note...' }] }
-        ]
-      }).run()
-    }
-  },
-   {
-    title: 'MCQ',
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range)
-        .insertContent({
-          type: 'mcq',
-          attrs: { correctIndex: null },
-          content: [
-            {
-              type: 'heading',
-              attrs: { level: 2 },
-              content: [{ type: 'text', text: 'Question?' }]
-            },
-            {
-              type: 'paragraph',
-              content: [{ type: 'text', text: 'Option A' }]
-            },
-            {
-              type: 'paragraph',
-              content: [{ type: 'text', text: 'Option B' }]
-            }
-          ]
-        })
-        .run()
-    }
-  }
-]
+        pulse.classList.add('hidden')
+        loading.classList.add('hidden')
 
-const SlashCommand = Extension.create({
-  name: 'slash-command',
+        return result.trim()
 
-  addProseMirrorPlugins() {
-    return [
-      Suggestion({
-        editor: this.editor,
-        char: '/',
-        items: ({ query }) => {
-          return slashItems.filter(item =>
-            item.title.toLowerCase().includes(query.toLowerCase())
-          )
-        },
-        command: ({ editor, range, props }) => {
-          props.command({ editor, range })
-        },
-        render: () => {
-          let popup
-
-          return {
-            onStart: props => {
-              popup = document.createElement('div')
-              popup.className = 'slash-popup bg-white shadow-lg border rounded p-2'
-
-              props.items.forEach(item => {
-                const el = document.createElement('div')
-                el.className = 'px-3 py-2 hover:bg-gray-100 cursor-pointer'
-                el.textContent = item.title
-                el.onclick = () => item.command(props)
-                popup.appendChild(el)
-              })
-
-              document.body.appendChild(popup)
-
-              const rect = props.clientRect()
-              popup.style.position = 'absolute'
-              popup.style.top = rect.bottom + 'px'
-              popup.style.left = rect.left + 'px'
-            },
-
-            onUpdate(props) {
-              popup.innerHTML = ''
-              props.items.forEach(item => {
-                const el = document.createElement('div')
-                el.className = 'px-3 py-2 hover:bg-gray-100 cursor-pointer'
-                el.textContent = item.title
-                el.onclick = () => item.command(props)
-                popup.appendChild(el)
-              })
-            },
-
-            onExit() {
-              if (popup) popup.remove()
-            }
-          }
-        }
-      })
-    ]
-  }
-})
-
-/* -------------------- SAFE STORAGE LOAD -------------------- */
-
-let initialContent = null
-
-try {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  if (saved) {
-    initialContent = JSON.parse(saved)
-  }
-} catch (e) {
-  console.warn('Corrupted storage, resetting...')
-  localStorage.removeItem(STORAGE_KEY)
-}
-
-/* -------------------- EDITOR -------------------- */
-
-const editor = new Editor({
-  element: document.querySelector('#editor'),
-  extensions: [
-    StarterKit,
-    TaskList,
-    TaskItem.configure({ nested: true }),
-    Link.configure({ openOnClick: false }),
-    HorizontalRule,
-    Callout,
-    MCQ,
-    SlashCommand,
-  ],
-  content: initialContent || {
-    type: 'doc',
-    content: [
-      {
-        type: 'paragraph',
-        content: [
-          { type: 'text', text: 'Type / or paste Markdown...' }
-        ]
-      }
-    ]
-  },
-  autofocus: 'end',
-  onUpdate: ({ editor }) => {
-    const json = editor.getJSON()
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
-
-    document.getElementById('jsonPreview').textContent =
-      JSON.stringify(json, null, 2)
-
-    document.getElementById('markdownPreview').textContent =
-      generateMarkdown(json) || '/* No content */'
-  },
-})
-
-/* -------------------- INITIAL DEBUG RENDER -------------------- */
-
-document.getElementById('jsonPreview').textContent =
-  JSON.stringify(editor.getJSON(), null, 2)
-
-document.getElementById('markdownPreview').textContent =
-  generateMarkdown(editor.getJSON()) || '/* No content */'
-
-editor.registerPlugin(
-  new Plugin({
-    props: {
-      handlePaste(view, event) {
-        const text = event.clipboardData?.getData('text/plain')
-        if (!text) return false
-
-        event.preventDefault()
-
-        const html = transformCustomMarkdown(text)
-        editor.chain().focus().insertContent(html).run()
-
-        return true
+      } catch (err) {
+        pulse.classList.add('hidden')
+        loading.classList.add('hidden')
+        console.error(err)
+        return `! AI Error: ${err.message}`
       }
     }
-  })
-)
+
+    document.getElementById('generateAI').onclick = async () => {
+      const prompt = aiPrompt.value.trim()
+      if (!prompt) return
+
+      generateBtn.disabled = true
+      generateBtn.textContent = 'Generating...'
+
+      const markdown = await callGeminiAI(prompt)
+
+      insertAI(markdown)
 
 
 
-  /* -------------------- AI INSERT -------------------- */
+      generateBtn.disabled = false
+      generateBtn.textContent = 'Generate'
 
-  async function insertAI(markdown) {
-    const html = transformCustomMarkdown(markdown)
-    editor.chain().focus().insertContent(html).run()
-  }
+      closeAI()
+    }
 
-  /* -------------------- TOOLBAR -------------------- */
+    inlineAIPrompt.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        inlineAIGenerate.click()
+      }
+    })
 
-  document.getElementById('bold').onclick =
-    () => editor.chain().focus().toggleBold().run()
-  document.getElementById('italic').onclick =
-    () => editor.chain().focus().toggleItalic().run()
-  document.getElementById('h1').onclick =
-    () => editor.chain().focus().toggleHeading({ level: 1 }).run()
-  document.getElementById('h2').onclick =
-    () => editor.chain().focus().toggleHeading({ level: 2 }).run()
-  document.getElementById('h3').onclick =
-    () => editor.chain().focus().toggleHeading({ level: 3 }).run()
+    inlineAIGenerate.onclick = async () => {
+      const prompt = inlineAIPrompt.value.trim()
+      if (!prompt) return
 
+      inlineAIGenerate.disabled = true
+      inlineAIGenerate.textContent = 'Generating...'
 
+      const markdown = await callGeminiAI(prompt)
 
-function generateMarkdown(node) {
-  if (!node) return ''
-
-  switch (node.type) {
-    case 'doc':
-      return node.content?.map(generateMarkdown).join('\n') || ''
-
-    case 'paragraph':
-      return node.content?.map(generateMarkdown).join('') || ''
-
-    case 'text':
-      return node.text || ''
-
-    case 'heading':
-      const level = node.attrs.level || 1
-      return `${'#'.repeat(level)} ${node.content?.map(generateMarkdown).join('')}`
-
-    case 'callout':
-      return node.content
-        ?.map(child => `! ${generateMarkdown(child)}`)
-        .join('\n')
-
-    case 'mcq':
-      const question = node.content?.[0]
-      const options = node.content?.slice(1) || []
-
-      let result = `? ${generateMarkdown(question)}\n`
-
-      options.forEach((opt, index) => {
-        const marker =
-          node.attrs.correctIndex == index + 1 ? '(x)' : '( )'
-        result += `${marker} ${generateMarkdown(opt)}\n`
-      })
-
-      return result.trim()
-
-    default:
-      return node.content?.map(generateMarkdown).join('') || ''
-  }
-}
+      insertAI(markdown)
 
 
 
-</script>
+      inlineAIGenerate.disabled = false
+      inlineAIGenerate.textContent = 'Generate'
+
+      closeInlineAI()
+    }
+
+    function normalizeMarkdown(text) {
+      // 1️⃣ Remove trailing spaces
+      text = text.replace(/[ \t]+$/gm, '')
+
+      // 2️⃣ Remove blank line before bullet lists
+      text = text.replace(/\n\n(-\s)/g, '\n$1')
+
+      // 3️⃣ Fix multiple blank lines inside lists
+      text = text.replace(/(- .+)\n\n(- )/g, '$1\n$2')
+
+      // 4️⃣ Prevent bullets from becoming code blocks
+      text = text.replace(/^\s{4,}(- )/gm, '$1')
+
+      // 5️⃣ Normalize MCQ options
+      text = text.replace(/^\s*\*\s*\(( |x|X)\)/gm, '($1)')
+      text = text.replace(/^\s*-\s*\(( |x|X)\)/gm, '($1)')
+
+      // 6️⃣ Remove accidental bullet before callout
+      text = text.replace(/^\s*[-*]\s*! /gm, '! ')
+
+      // 7️⃣ Remove accidental bullet before MCQ question
+      text = text.replace(/^\s*[-*]\s*\? /gm, '? ')
+
+      return text
+    }
+
+
+
+    function generateMarkdown(node) {
+      if (!node) return ''
+
+      switch (node.type) {
+        case 'doc':
+          return node.content?.map(generateMarkdown).join('\n') || ''
+
+        case 'paragraph':
+          return node.content?.map(generateMarkdown).join('') + '\n'
+
+        case 'text':
+          return node.text || ''
+
+        case 'heading':
+          const level = node.attrs.level || 1
+          return `${'#'.repeat(level)} ${node.content?.map(generateMarkdown).join('')}\n`
+
+        case 'bulletList':
+          return node.content?.map(child => `- ${generateMarkdown(child).trim()}\n`).join('') || ''
+
+        case 'orderedList':
+          return node.content?.map((child, index) => {
+            // For ordered list, we need to pass the index or handle it
+            // Simple version: 1. Item
+            return `${index + 1}. ${generateMarkdown(child).trim()}\n`
+          }).join('') || ''
+
+        case 'listItem':
+
+
+          return node.content?.map(generateMarkdown).join('')
+
+        case 'callout':
+          return node.content
+            ?.map(child => `! ${generateMarkdown(child).trim()}`)
+            .join('\n') + '\n'
+
+        case 'mcq':
+          const question = node.content?.[0]
+          const options = node.content?.slice(1) || []
+
+          let result = `? ${generateMarkdown(question).trim()}\n`
+
+          options.forEach((opt, index) => {
+            const marker =
+              node.attrs.correctIndex == index + 1 ? '(x)' : '( )'
+            result += `${marker} ${generateMarkdown(opt).trim()}\n`
+          })
+
+          return result.trim() + '\n'
+
+        case 'taskList':
+          return node.content?.map(generateMarkdown).join('') || ''
+
+        case 'taskItem':
+          const check = node.attrs.checked ? '[x]' : '[ ]'
+          return `${check} ${node.content?.map(generateMarkdown).join('').trim()}\n`
+
+        case 'horizontalRule':
+          return '---\n'
+
+        default:
+          return node.content?.map(generateMarkdown).join('') || ''
+      }
+    }
+
+
+
+  </script>
 
 
 </body>
