@@ -3,12 +3,270 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>TipTap — Plate Design System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TipTap — Premium Document Editor</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet">
 
+  <style>
+    /* Premium Design System Tokens */
+    :root {
+      --plate-bg: #ffffff;
+      --plate-border: #e2e8f0;
+      --plate-hover: #f1f5f9;
+      --plate-accent: #3b82f6;
+      --font-outfit: 'Outfit', sans-serif;
+      --font-inter: 'Inter', sans-serif;
+    }
+
+    body {
+      font-family: var(--font-inter);
+      background: radial-gradient(circle at top right, #f8fafc, #eff6ff);
+      min-height: 100vh;
+      color: #1e293b;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Editor Specific Styles */
+    .ProseMirror {
+      outline: none;
+      min-height: 500px;
+      padding: 60px 80px;
+    }
+
+    @media (max-width: 768px) {
+      .ProseMirror {
+        padding: 40px 24px;
+      }
+    }
+
+    .ProseMirror h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+      font-family: var(--font-outfit);
+      color: #0f172a;
+    }
+
+    .ProseMirror h2 {
+      font-size: 1.875rem;
+      font-weight: 700;
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+      font-family: var(--font-outfit);
+      color: #1e293b;
+    }
+
+    .ProseMirror h3 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-top: 1.25rem;
+      margin-bottom: 0.5rem;
+      font-family: var(--font-outfit);
+      color: #334155;
+    }
+
+    .ProseMirror p {
+      margin: 1rem 0;
+      line-height: 1.7;
+    }
+
+    /* Selection & Drag Handle */
+    .ProseMirror>* {
+      position: relative;
+      padding: 4px 0;
+      transition: all 0.2s ease;
+    }
+
+    .ProseMirror>*::before {
+      content: "⠿";
+      position: absolute;
+      left: -40px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #cbd5e1;
+      font-size: 20px;
+      opacity: 0;
+      transition: all 0.2s;
+      cursor: grab;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+    }
+
+    .ProseMirror>*:hover::before {
+      opacity: 1;
+    }
+
+    .ProseMirror>*:hover::before:hover {
+      background: #f1f5f9;
+      color: var(--plate-accent);
+    }
+
+    /* Placeholder */
+    .ProseMirror p.is-editor-empty:first-child::before {
+      content: attr(data-placeholder);
+      float: left;
+      color: #94a3b8;
+      pointer-events: none;
+      height: 0;
+    }
+
+    /* Task List */
+    ul[data-type="taskList"] {
+      list-style: none;
+      padding: 0;
+    }
+
+    ul[data-type="taskList"] li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin: 8px 0;
+    }
+
+    ul[data-type="taskList"] input[type="checkbox"] {
+      margin-top: 6px;
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+      accent-color: var(--plate-accent);
+    }
+
+    ul[data-type="taskList"] li[data-checked="true"]>div {
+      text-decoration: line-through;
+      color: #94a3b8;
+    }
+
+    /* Custom Nodes */
+    .callout {
+      display: flex;
+      gap: 16px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      margin: 1.5rem 0;
+    }
+
+    .callout-icon {
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+
+    .callout-content {
+      flex-grow: 1;
+    }
+
+    .mcq {
+      background: white;
+      border: 1px solid #e2e8f0;
+      padding: 24px;
+      border-radius: 16px;
+      margin: 1.5rem 0;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+
+    .mcq-content>h2:first-child {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .mcq-content>p:not(:first-child) {
+      padding: 12px 16px;
+      border: 2px solid #f1f5f9;
+      border-radius: 12px;
+      margin: 8px 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .mcq-content>p:not(:first-child):hover {
+      border-color: var(--plate-accent);
+      background: #f8fafc;
+    }
+
+    .mcq-content>p:not(:first-child)::before {
+      content: "";
+      width: 18px;
+      height: 18px;
+      border: 2px solid #cbd5e1;
+      border-radius: 50%;
+      margin-right: 12px;
+    }
+
+    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2),
+    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3),
+    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4),
+    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5) {
+      background: #f0fdf4;
+      border-color: #22c55e;
+      color: #15803d;
+      font-weight: 600;
+    }
+
+    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2)::before,
+    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3)::before,
+    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4)::before,
+    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5)::before {
+      background: #22c55e;
+      border-color: #22c55e;
+      box-shadow: inset 0 0 0 3px #f0fdf4;
+    }
+
+    /* Modal Animation */
+    @keyframes modalIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95) translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    .modal-content {
+      animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
 </head>
 
 <body class="bg-gray-50 flex flex-col items-center py-12">
