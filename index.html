@@ -730,78 +730,28 @@
     import TaskItem from 'https://esm.sh/@tiptap/extension-task-item'
     import Link from 'https://esm.sh/@tiptap/extension-link'
     import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule'
+    import { Markdown } from 'https://esm.sh/tiptap-markdown'
 
     const STORAGE_KEY = 'tiptap-plate-design'
 
-    // Helper to convert Tiptap JSON to Markdown
-    function serializeToMarkdown(json) {
-      if (!json || !json.content) return ''
-
-      const processNode = (node) => {
-        if (node.type === 'text') {
-          let t = node.text || ''
-          if (node.marks?.some(m => m.type === 'bold')) t = `**${t}**`
-          if (node.marks?.some(m => m.type === 'italic')) t = `*${t}*`
-          if (node.marks?.some(m => m.type === 'code')) t = `\`${t}\``
-          return t
-        }
-
-        if (node.type === 'heading') {
-          const content = node.content?.map(processNode).join('') || ''
-          return '#'.repeat(node.attrs.level) + ' ' + content + '\n\n'
-        }
-
-        if (node.type === 'paragraph') {
-          const content = node.content?.map(processNode).join('') || ''
-          return content + '\n\n'
-        }
-
-        if (node.type === 'callout') {
-          const content = node.content?.map(processNode).join('').trim()
-          return '> 💡 ' + content.replace(/\n\n/g, '\n> ') + '\n\n'
-        }
-
-        if (node.type === 'mcq') {
-          const questionNode = node.content?.[0]
-          const questionText = questionNode ? questionNode.content?.map(processNode).join('').trim() : 'Question'
-          const options = node.content?.slice(1).map((opt, idx) => {
-            const optText = opt.content?.map(processNode).join('').trim()
-            const isCorrect = node.attrs.correctIndex == (idx + 1)
-            return `- ${isCorrect ? '[x] ' : ''}${optText}`
-          }).join('\n')
-          return `? ${questionText}\n${options}\n\n`
-        }
-
-        if (node.type === 'taskList') {
-          return node.content?.map(item => {
-            const checked = item.attrs.checked ? 'x' : ' '
-            const content = item.content?.map(processNode).join('').trim()
-            return `- [${checked}] ${content}`
-          }).join('\n') + '\n\n'
-        }
-
-        if (node.type === 'listItem') {
-          return node.content?.map(processNode).join('').trim()
-        }
-
-        if (node.type === 'bulletList' || node.type === 'orderedList') {
-          const char = node.type === 'bulletList' ? '-' : '1.'
-          return node.content?.map(item => `${char} ${processNode(item)}`).join('\n') + '\n\n'
-        }
-
-        if (node.type === 'horizontalRule') return '---\n\n'
-
-        return node.content?.map(processNode).join('') || ''
-      }
-
-      return json.content.map(processNode).join('').trim()
-    }
 
     const Callout = Node.create({
       name: 'callout',
       group: 'block',
       content: 'block+',
       draggable: true,
+      addStorage() {
+        return {
+          markdown: {
+            serialize: (state, node) => {
+              state.write('! ')
+              state.renderContent(node)
+              state.closeBlock(node)
+            },
+          },
+        }
+      },
+
       renderHTML({ HTMLAttributes }) {
         return [
           'div',
@@ -825,6 +775,37 @@
       group: 'block',
       content: 'block+',
       draggable: true,
+      addStorage() {
+  return {
+    markdown: {
+      serialize: (state, node) => {
+        // Write header marker
+        state.write('? ')
+
+        const children = node.content.content
+
+        children.forEach((child, index) => {
+          // First node = question (usually heading)
+          if (index === 0) {
+            state.render(child)
+            state.ensureNewLine()
+            state.ensureNewLine()
+          } else {
+            const isCorrect = node.attrs.correctIndex == index
+            state.write(`- [${isCorrect ? 'x' : ' '}] `)
+            child.content.forEach(inlineNode => {
+              state.render(inlineNode)
+            })
+
+            state.ensureNewLine()
+          }
+        })
+
+        state.closeBlock(node)
+      },
+    },
+  }
+},
       addAttributes() {
         return {
           correctIndex: {
@@ -890,150 +871,18 @@
       }
     })
 
-    // Helper to parse bold, italic, and code marks
-    function parseInline(text) {
-      if (!text) return []
-      const results = []
-      const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3|(`)(.*?)\5/g
-      let match
-      let lastIndex = 0
-
-      while ((match = regex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
-          results.push({ type: 'text', text: text.substring(lastIndex, match.index) })
-        }
-        const content = match[2] || match[4] || match[6]
-        const marks = []
-        if (match[1]) marks.push({ type: 'bold' })
-        if (match[3]) marks.push({ type: 'italic' })
-        if (match[5]) marks.push({ type: 'code' })
-        results.push({ type: 'text', text: content, marks })
-        lastIndex = regex.lastIndex
-      }
-      if (lastIndex < text.length) {
-        results.push({ type: 'text', text: text.substring(lastIndex) })
-      }
-      return results.length > 0 ? results : [{ type: 'text', text }]
-    }
-
-    // Enhanced Robust Markdown Parser
-    function parseMarkdownToJSON(text) {
-      const lines = text.split('\n')
-      const content = []
-      let lastBlock = null
-
-      lines.forEach(line => {
-        const trimmed = line.trim()
-        if (!trimmed) return
-
-        // 1. Headings
-        const headingMatch = trimmed.match(/^(#{1,6})\s*(.*)/)
-        if (headingMatch) {
-          content.push({ type: 'heading', attrs: { level: headingMatch[1].length }, content: parseInline(headingMatch[2]) })
-          lastBlock = 'heading'
-          return
-        }
-
-        // 2. Horizontal Rule
-        if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
-          content.push({ type: 'horizontalRule' })
-          lastBlock = 'hr'
-          return
-        }
-
-        // 3. MCQ Header
-        if (trimmed.startsWith('?')) {
-          const qText = trimmed.replace(/^\?\s*/, '')
-          lastBlock = { type: 'mcq', attrs: { correctIndex: null }, content: [{ type: 'heading', attrs: { level: 3 }, content: parseInline(qText) }] }
-          content.push(lastBlock)
-          return
-        }
-
-        // 4. Callout Header
-        if (trimmed.startsWith('!')) {
-          const cText = trimmed.replace(/^!\s*/, '')
-          lastBlock = { type: 'callout', content: [{ type: 'paragraph', content: parseInline(cText) }] }
-          content.push(lastBlock)
-          return
-        }
-
-        // 5. Task Items
-        const taskMatch = trimmed.match(/^\[( |x)\]\s*(.*)/i)
-        if (taskMatch) {
-          const item = {
-            type: 'taskItem',
-            attrs: { checked: taskMatch[1].toLowerCase() === 'x' },
-            content: [{ type: 'paragraph', content: parseInline(taskMatch[2]) }]
-          }
-          if (content.length > 0 && content[content.length - 1].type === 'taskList') {
-            content[content.length - 1].content.push(item)
-          } else {
-            content.push({ type: 'taskList', content: [item] })
-          }
-          lastBlock = 'taskList'
-          return
-        }
-
-        // 6. List Items (MCQ or Standard)
-        const bulletMatch = trimmed.match(/^([-*+])\s+(.*)/)
-        const orderedMatch = trimmed.match(/^(\d+)\.\s+(.*)/)
-        if (bulletMatch || orderedMatch) {
-          let listText = bulletMatch ? bulletMatch[2] : orderedMatch[2]
-
-          if (lastBlock && lastBlock.type === 'mcq') {
-            const isCorrect = listText.startsWith('[x] ')
-            if (isCorrect) {
-              listText = listText.replace(/^\[x\]\s*/, '')
-              lastBlock.attrs.correctIndex = lastBlock.content.length
-            }
-            lastBlock.content.push({ type: 'paragraph', content: parseInline(listText) })
-            return
-          }
-
-          const listType = bulletMatch ? 'bulletList' : 'orderedList'
-          const item = { type: 'listItem', content: [{ type: 'paragraph', content: parseInline(listText) }] }
-          if (content.length > 0 && content[content.length - 1].type === listType) {
-            content[content.length - 1].content.push(item)
-          } else {
-            content.push({ type: listType, content: [item] })
-          }
-          lastBlock = listType
-          return
-        }
-
-        // Default: Paragraph
-        if (lastBlock && lastBlock.type === 'callout') {
-          lastBlock.content.push({ type: 'paragraph', content: parseInline(trimmed) })
-        } else {
-          content.push({ type: 'paragraph', content: parseInline(trimmed) })
-          lastBlock = 'paragraph'
-        }
-      })
-      return content
-    }
-
     const editor = new Editor({
       element: document.querySelector('#editor'),
-      editorProps: {
-        handlePaste: (view, event) => {
-          const text = event.clipboardData.getData('text/plain')
-          if (text.includes('#') || text.includes('! ') || text.includes('? ') || text.includes('---')) {
-            const json = parseMarkdownToJSON(text)
-            editor.commands.insertContent(json)
-            return true
-          }
-          return false
-        }
-      },
       extensions: [
         StarterKit.configure({
-          paragraph: { draggable: true },
-          heading: { draggable: true },
-          bulletList: { draggable: true },
-          orderedList: { draggable: true },
-          blockquote: { draggable: true },
-          codeBlock: { draggable: true },
           horizontalRule: false, // Disable default to use extended one
+        }),
+        Markdown.configure({
+          html: false,          // safer
+          tightLists: true,
+          tightListClass: 'tight',
+          bulletListMarker: '-',
+          linkify: true,
         }),
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -1051,10 +900,13 @@
         const json = editor.getJSON()
         localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
 
-        // Update Both Previews
-        document.getElementById('markdownPreview').textContent = serializeToMarkdown(json) || '/* No content */'
-        document.getElementById('jsonPreview').textContent = JSON.stringify(json, null, 2)
-      },
+        document.getElementById('markdownPreview').textContent =
+          editor.storage.markdown.getMarkdown() || '/* No content */'
+
+        document.getElementById('jsonPreview').textContent =
+          JSON.stringify(json, null, 2)
+      }
+
     })
 
     // Toolbar Actions
@@ -1164,6 +1016,8 @@
     document.getElementById('askAI').onclick = openAI
     document.getElementById('closeAI').onclick = closeAI
     document.getElementById('cancelAI').onclick = closeAI
+
+    const GEMINI_API_KEY = 'YOUR_API_KEY_HERE'
 
     // Switching to gemini-2.0-flash based on the documentation provided
     const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`
@@ -1275,9 +1129,8 @@
       inlineAIGenerate.textContent = 'Generating...'
 
       const markdown = await callGeminiAI(prompt)
-      const json = parseMarkdownToJSON(markdown)
 
-      editor.chain().focus().insertContent(json).run()
+      editor.chain().focus().insertContent(markdown).run()
 
       inlineAIGenerate.disabled = false
       inlineAIGenerate.textContent = 'Generate'
@@ -1335,10 +1188,8 @@
 
     document.addEventListener('mousedown', e => { if (!slashMenu.contains(e.target)) closeSlashMenu() })
 
-    // Initial Preview Render
-    const initialJSON = editor.getJSON()
-    document.getElementById('markdownPreview').textContent = serializeToMarkdown(initialJSON) || '/* No content */'
-    document.getElementById('jsonPreview').textContent = JSON.stringify(initialJSON, null, 2)
+    document.getElementById('markdownPreview').textContent =
+    editor.storage.markdown.getMarkdown() || '/* No content */'
 
     // Modal Logic
     const importModal = document.getElementById('importModal')
@@ -1359,14 +1210,13 @@
     document.getElementById('cancelImport').onclick = closeModal
 
     document.getElementById('doImport').onclick = () => {
-      const text = markdownInput.value
-      if (text.trim()) {
-        const json = parseMarkdownToJSON(text)
-        editor.commands.insertContent(json)
-        markdownInput.value = ''
-        closeModal()
-      }
-    }
+      const text = markdownInput.value.trim()
+      if (!text) return
+
+      editor.commands.setContent(text,{ contentType: 'markdown' })
+      markdownInput.value = ''
+      closeModal()
+}
 
     // Close on click outside
     importModal.onclick = (e) => {
