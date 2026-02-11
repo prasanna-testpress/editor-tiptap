@@ -719,8 +719,7 @@
         return {
           markdown: {
             serialize: (state, node) => {
-              state.write('! ')
-              state.renderContent(node)
+              state.wrapBlock('! ', null, node, () => state.renderContent(node))
               state.closeBlock(node)
             },
           },
@@ -750,37 +749,30 @@
       group: 'block',
       content: 'heading paragraph+',
       draggable: true,
-      addStorage() {
-        return {
-          markdown: {
-            serialize: (state, node) => {
-              // Write header marker
-              state.write('? ')
+     addStorage() {
+  return {
+    markdown: {
+      serialize: (state, node) => {
+        const question = node.firstChild
+        state.write(`? ${question.textContent}`)
+        state.ensureNewLine()
 
-              const children = node.content.content
+        node.content.forEach((child, i) => {
+          if (i === 0) return // skip heading
 
-              children.forEach((child, index) => {
-                // First node = question (usually heading)
-                if (index === 0) {
-                  state.render(child)
-                  state.ensureNewLine()
-                  state.ensureNewLine()
-                } else {
-                  const isCorrect = node.attrs.correctIndex == index
-                  state.write(`(${isCorrect ? 'x' : ' '}) `)
-                  child.content.forEach(inlineNode => {
-                    state.render(inlineNode)
-                  })
+          const index = i
+          const isCorrect = node.attrs.correctIndex == index
+          const marker = isCorrect ? '(x)' : '( )'
 
-                  state.ensureNewLine()
-                }
-              })
+          state.write(`${marker} ${child.textContent}`)
+          state.ensureNewLine()
+        })
 
-              state.closeBlock(node)
-            },
-          },
-        }
+        state.closeBlock(node)
       },
+    },
+  }
+},
       addAttributes() {
         return {
           correctIndex: {
@@ -934,15 +926,31 @@
         const text = node.textContent
 
         // --- Callout ---
-        if (text.startsWith('! ')) {
-          transforms.push({
-            range: { from: pos, to: pos + node.nodeSize },
-            type: 'callout',
-            content: text.slice(2)
-          })
-          lastConsumedPos = pos + node.nodeSize
-          return
-        }
+        if (text.includes('! ')) {
+  const lines = text.split('\n')
+  const calloutLines = []
+
+  let isCallout = true
+
+  for (let line of lines) {
+    if (line.trim() === '') continue
+    if (!line.startsWith('! ')) {
+      isCallout = false
+      break
+    }
+    calloutLines.push(line.slice(2))
+  }
+
+  if (isCallout && calloutLines.length > 0) {
+    transforms.push({
+      range: { from: pos, to: pos + node.nodeSize },
+      type: 'callout',
+      content: calloutLines
+    })
+    lastConsumedPos = pos + node.nodeSize
+    return
+  }
+}
 
         // --- MCQ ---
         const isQuestionPara = text.startsWith('? ')
@@ -1050,12 +1058,15 @@
 
         if (item.type === 'callout') {
           editor.chain()
-            .deleteRange(item.range)
-            .insertContentAt(item.range.from, {
-              type: 'callout',
-              content: [{ type: 'paragraph', content: [{ type: 'text', text: item.content }] }]
-            })
-            .run()
+    .deleteRange(item.range)
+    .insertContentAt(item.range.from, {
+      type: 'callout',
+      content: item.content.map(text => ({
+        type: 'paragraph',
+        content: [{ type: 'text', text }]
+      }))
+    })
+    .run()
         } else if (item.type === 'mcq') {
           const mcqContent = [
             { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: item.question }] },
