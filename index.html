@@ -540,9 +540,6 @@
       <button
         class="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all shrink-0">History</button>
       <div class="w-px h-6 bg-slate-200/60 mx-1 shrink-0"></div>
-      <button id="pasteMarkdown"
-        class="px-4 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50/50 rounded-xl transition-all whitespace-nowrap shrink-0"
-        title="Paste any markdown content here to auto-convert">📋 Paste Markdown</button>
       <div class="flex-grow min-w-[20px] shrink-0"></div>
       <button id="askAI"
         class="px-5 py-2.5 text-xs font-black text-white bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2 m-0.5 shrink-0 hover:shadow-blue-500/40">
@@ -565,30 +562,6 @@
       <div id="editor"></div>
     </div>
 
-    <!-- Markdown Import Modal -->
-    <div id="importModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-6 modal-overlay">
-      <div class="w-full max-w-2xl modal-content rounded-2xl overflow-hidden flex flex-col">
-        <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-tight">Paste Markdown</h2>
-          <button id="closeModal" class="text-slate-400 hover:text-slate-600 transition-colors">✕</button>
-        </div>
-        <div class="p-6">
-          <textarea id="markdownInput"
-            class="w-full h-64 p-4 text-sm font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none"
-            placeholder="# Paste your markdown here..."></textarea>
-          <div class="mt-4 flex justify-end gap-3">
-            <button id="cancelImport"
-              class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
-            <button id="doImport"
-              class="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md shadow-blue-500/20 transition-all active:scale-95">✨
-              Convert to Blocks</button>
-          </div>
-        </div>
-        <div class="px-6 py-3 bg-slate-50 border-t border-slate-100 italic text-[11px] text-slate-400">
-          Supports: # Headings, ! Callouts, ? Questions, --- Dividers, [ ] Tasks, **Bold**, *Italic*
-        </div>
-      </div>
-    </div>
 
     <!-- Ask AI Modal -->
     <div id="aiModal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-6 modal-overlay">
@@ -731,6 +704,8 @@
     import Link from 'https://esm.sh/@tiptap/extension-link'
     import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule'
     import { Markdown } from 'https://esm.sh/tiptap-markdown'
+    import { Plugin } from 'https://esm.sh/prosemirror-state'
+
 
     const STORAGE_KEY = 'tiptap-plate-design'
 
@@ -776,36 +751,36 @@
       content: 'block+',
       draggable: true,
       addStorage() {
-  return {
-    markdown: {
-      serialize: (state, node) => {
-        // Write header marker
-        state.write('? ')
+        return {
+          markdown: {
+            serialize: (state, node) => {
+              // Write header marker
+              state.write('? ')
 
-        const children = node.content.content
+              const children = node.content.content
 
-        children.forEach((child, index) => {
-          // First node = question (usually heading)
-          if (index === 0) {
-            state.render(child)
-            state.ensureNewLine()
-            state.ensureNewLine()
-          } else {
-            const isCorrect = node.attrs.correctIndex == index
-            state.write(`- [${isCorrect ? 'x' : ' '}] `)
-            child.content.forEach(inlineNode => {
-              state.render(inlineNode)
-            })
+              children.forEach((child, index) => {
+                // First node = question (usually heading)
+                if (index === 0) {
+                  state.render(child)
+                  state.ensureNewLine()
+                  state.ensureNewLine()
+                } else {
+                  const isCorrect = node.attrs.correctIndex == index
+                  state.write(`(${isCorrect ? 'x' : ' '}) `)
+                  child.content.forEach(inlineNode => {
+                    state.render(inlineNode)
+                  })
 
-            state.ensureNewLine()
-          }
-        })
+                  state.ensureNewLine()
+                }
+              })
 
-        state.closeBlock(node)
+              state.closeBlock(node)
+            },
+          },
+        }
       },
-    },
-  }
-},
       addAttributes() {
         return {
           correctIndex: {
@@ -909,6 +884,189 @@
 
     })
 
+    editor.registerPlugin(
+      new Plugin({
+        props: {
+          handlePaste(view, event) {
+            const text = event.clipboardData?.getData('text/plain')
+            if (!text) return false
+
+            const looksLikeMarkdown =
+              /^#{1,6}\s/m.test(text) ||
+              /^\?\s/m.test(text) ||
+              /^!\s/m.test(text)
+
+            if (!looksLikeMarkdown) return false
+
+            event.preventDefault()
+
+            editor.commands.insertContent(text, {
+              contentType: 'markdown'
+            })
+
+            setTimeout(() => convertCustomBlocks(), 0)
+
+            return true
+          }
+        }
+      })
+    )
+
+    function convertCustomBlocks() {
+      const { doc } = editor.state
+      const transforms = []
+      let lastConsumedPos = -1
+
+      doc.descendants((node, pos) => {
+        if (pos < lastConsumedPos) return
+        if (node.type.name !== 'paragraph') return
+
+        const text = node.textContent
+
+        // --- Callout ---
+        if (text.startsWith('! ')) {
+          transforms.push({
+            range: { from: pos, to: pos + node.nodeSize },
+            type: 'callout',
+            content: text.slice(2)
+          })
+          lastConsumedPos = pos + node.nodeSize
+          return
+        }
+
+        // --- MCQ ---
+        const isQuestionPara = text.startsWith('? ')
+        const isOptionPara = /^\s*\(([ xX])\)\s/.test(text)
+
+        if (isQuestionPara || isOptionPara) {
+          let startPos = pos
+          let question = 'Question'
+          let options = []
+          let correctIndex = null
+
+          // 1. Determine Start & Question Text
+          if (isQuestionPara) {
+            // Format: "? Question text"
+            const lines = text.split('\n')
+            question = lines[0].slice(2)
+
+            // Check embedded options in the Question Paragraph
+            for (let i = 1; i < lines.length; i++) {
+              const line = lines[i].trim()
+              const match = line.match(/^\(([ xX])\)\s+(.*)/)
+              if (match) {
+                const isCorrect = match[1].toLowerCase() === 'x'
+                if (isCorrect) correctIndex = options.length + 1 // 1-based
+                options.push(match[2])
+              }
+            }
+          } else if (isOptionPara) {
+            // Format: No "?", just options. Check for preceding heading.
+            const $pos = doc.resolve(pos)
+            const index = $pos.index() // Index in parent
+            if (index > 0) {
+              const prevNode = $pos.parent.child(index - 1)
+              // Check if prevNode is a valid Heading and NOT already consumed
+              const prevNodePos = pos - prevNode.nodeSize
+              if (prevNodePos >= lastConsumedPos && prevNode.type.name.startsWith('heading')) {
+                question = prevNode.textContent
+                startPos = prevNodePos // Expand range to include heading
+              }
+            }
+
+            // Check embedded options in this paragraph
+            const lines = text.split('\n')
+            for (let line of lines) {
+              line = line.trim()
+              const match = line.match(/^\(([ xX])\)\s+(.*)/)
+              if (match) {
+                const isCorrect = match[1].toLowerCase() === 'x'
+                if (isCorrect) correctIndex = options.length + 1
+                options.push(match[2])
+              }
+            }
+          }
+
+          // 2. Scan Sibling Paragraphs for more options
+          // We start scanning from the node AFTER the current one
+          let scanPos = pos + node.nodeSize
+
+          while (scanPos < doc.content.size) {
+            const nextNode = doc.nodeAt(scanPos)
+            if (!nextNode || nextNode.type.name !== 'paragraph') break
+
+            const nextText = nextNode.textContent
+            // Check if valid option line(s)
+            const lines = nextText.split('\n')
+            const firstLineMatch = lines[0].trim().match(/^\(([ xX])\)\s+(.*)/)
+
+            if (!firstLineMatch) break // Stop if not an option paragraph
+
+            // Absorb this paragraph
+            for (let line of lines) {
+              line = line.trim()
+              const match = line.match(/^\(([ xX])\)\s+(.*)/)
+              if (match) {
+                const isCorrect = match[1].toLowerCase() === 'x'
+                if (isCorrect && correctIndex === null) correctIndex = options.length + 1
+                options.push(match[2])
+              }
+            }
+
+            scanPos += nextNode.nodeSize
+          }
+
+          // Only apply if we actually found options
+          if (options.length > 0) {
+            transforms.push({
+              range: { from: startPos, to: scanPos },
+              type: 'mcq',
+              question,
+              options,
+              correctIndex
+            })
+            lastConsumedPos = scanPos
+          }
+        }
+      })
+
+      if (transforms.length === 0) return
+
+      // Apply transforms in reverse order to prevent position drift
+      editor.chain().focus().run()
+
+      for (let i = transforms.length - 1; i >= 0; i--) {
+        const item = transforms[i]
+
+        if (item.type === 'callout') {
+          editor.chain()
+            .deleteRange(item.range)
+            .insertContentAt(item.range.from, {
+              type: 'callout',
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: item.content }] }]
+            })
+            .run()
+        } else if (item.type === 'mcq') {
+          const mcqContent = [
+            { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: item.question }] },
+            ...item.options.map(opt => ({ type: 'paragraph', content: [{ type: 'text', text: opt }] }))
+          ]
+
+          editor.chain()
+            .deleteRange(item.range)
+            .insertContentAt(item.range.from, {
+              type: 'mcq',
+              attrs: { correctIndex: item.correctIndex },
+              content: mcqContent
+            })
+            .run()
+        }
+      }
+    }
+
+    // Run once on load to fix any existing broken markdown
+    setTimeout(convertCustomBlocks, 500)
+
     // Toolbar Actions
     document.getElementById('bold').onclick = () => editor.chain().focus().toggleBold().run()
     document.getElementById('italic').onclick = () => editor.chain().focus().toggleItalic().run()
@@ -916,7 +1074,6 @@
     document.getElementById('h2').onclick = () => editor.chain().focus().toggleHeading({ level: 2 }).run()
     document.getElementById('h3').onclick = () => editor.chain().focus().toggleHeading({ level: 3 }).run()
 
-    /* --- MCQ Answer Selection Logic (Moved to NodeView for reliability) --- */
 
     /* --- Drag Handle Selection Helper --- */
     editor.view.dom.addEventListener('mousedown', e => {
@@ -1037,7 +1194,9 @@
       Syntax:
       - Start a line with '! ' for a Blue Callout box.
       - Start a line with '? ' for a MCQ block header.
-      - Use bullet points (- ) for options. IMPORTANT: Mark the correct answer with '[x]' (e.g., '- [x] Correct Choice').
+      - For MCQ options use:
+        ( ) Option text
+        (x) Correct option
       - Use '# ' to '###### ' for headings.
       - Use '---' for dividers and '[ ] ' for tasks.`
 
@@ -1130,7 +1289,8 @@
 
       const markdown = await callGeminiAI(prompt)
 
-      editor.chain().focus().insertContent(markdown).run()
+      editor.chain().focus().insertContent(markdown, { contentType: 'markdown' }).run()
+
 
       inlineAIGenerate.disabled = false
       inlineAIGenerate.textContent = 'Generate'
@@ -1189,39 +1349,8 @@
     document.addEventListener('mousedown', e => { if (!slashMenu.contains(e.target)) closeSlashMenu() })
 
     document.getElementById('markdownPreview').textContent =
-    editor.storage.markdown.getMarkdown() || '/* No content */'
+      editor.storage.markdown.getMarkdown() || '/* No content */'
 
-    // Modal Logic
-    const importModal = document.getElementById('importModal')
-    const markdownInput = document.getElementById('markdownInput')
-
-    document.getElementById('pasteMarkdown').onclick = () => {
-      importModal.classList.remove('hidden')
-      setTimeout(() => document.body.classList.add('modal-active'), 10)
-      markdownInput.focus()
-    }
-
-    const closeModal = () => {
-      document.body.classList.remove('modal-active')
-      setTimeout(() => importModal.classList.add('hidden'), 300)
-    }
-
-    document.getElementById('closeModal').onclick = closeModal
-    document.getElementById('cancelImport').onclick = closeModal
-
-    document.getElementById('doImport').onclick = () => {
-      const text = markdownInput.value.trim()
-      if (!text) return
-
-      editor.commands.setContent(text,{ contentType: 'markdown' })
-      markdownInput.value = ''
-      closeModal()
-}
-
-    // Close on click outside
-    importModal.onclick = (e) => {
-      if (e.target === importModal) closeModal()
-    }
   </script>
 
 </body>
