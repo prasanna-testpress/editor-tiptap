@@ -521,42 +521,42 @@
         }
       },
       {
-  title: 'Ask AI',
-  command: ({ editor, range }) => {
-    // Remove the "/" trigger
-    editor.chain().focus().deleteRange(range).run()
+        title: 'Ask AI',
+        command: ({ editor, range }) => {
+          // Remove the "/" trigger
+          editor.chain().focus().deleteRange(range).run()
 
-    const { state } = editor
-    const { $from } = state.selection
+          const { state } = editor
+          const { $from } = state.selection
 
-    // Get entire paragraph node
-    const paragraphNode = $from.parent
+          // Get entire paragraph node
+          const paragraphNode = $from.parent
 
-    if (paragraphNode && paragraphNode.type.name === 'paragraph') {
-      const text = paragraphNode.textContent.trim()
+          if (paragraphNode && paragraphNode.type.name === 'paragraph') {
+            const text = paragraphNode.textContent.trim()
 
-      if (text.length > 0) {
-        // Get exact paragraph position
-        const from = $from.before()
-        const to = $from.after()
+            if (text.length > 0) {
+              // Get exact paragraph position
+              const from = $from.before()
+              const to = $from.after()
 
-        // Delete full paragraph
-        editor.chain()
-          .focus()
-          .deleteRange({ from, to })
-          .run()
+              // Delete full paragraph
+              editor.chain()
+                .focus()
+                .deleteRange({ from, to })
+                .run()
 
-        // Open Inline AI with captured text
-        openInlineAI(text)
+              // Open Inline AI with captured text
+              openInlineAI(text)
 
-        return
+              return
+            }
+          }
+
+          // If empty paragraph → just open AI
+          openInlineAI()
+        }
       }
-    }
-
-    // If empty paragraph → just open AI
-    openInlineAI()
-  }
-}
 
     ]
 
