@@ -894,9 +894,10 @@
             if (!text) return false
 
             const looksLikeMarkdown =
-              /^#{1,6}\s/m.test(text) ||
-              /^\?\s/m.test(text) ||
-              /^!\s/m.test(text)
+              /^#{1,6}\s/m.test(text) ||   // headings
+              /^\?\s/m.test(text) ||      // MCQ
+              /^!\s/m.test(text) ||       // Callout
+              /^-{3,}$/m.test(text)
 
             if (!looksLikeMarkdown) return false
 
