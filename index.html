@@ -835,10 +835,20 @@
             contentDOM: content,
             update: updatedNode => {
               if (updatedNode.type.name !== 'mcq') return false
-              if (updatedNode.attrs.correctIndex !== node.attrs.correctIndex) {
-                container.setAttribute('data-correct-index', updatedNode.attrs.correctIndex)
-                node.attrs.correctIndex = updatedNode.attrs.correctIndex // Update local ref
+
+              // Update DOM attribute safely
+              if (updatedNode.attrs.correctIndex === null) {
+                container.removeAttribute('data-correct-index')
+              } else {
+                container.setAttribute(
+                  'data-correct-index',
+                  updatedNode.attrs.correctIndex
+                )
               }
+
+              // Replace local reference safely
+              node = updatedNode
+
               return true
             },
           }
