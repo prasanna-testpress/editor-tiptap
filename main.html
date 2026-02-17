@@ -266,6 +266,54 @@
       -ms-overflow-style: none;
       scrollbar-width: none;
     }
+
+    /* Inline AI Bar */
+    #inlineAIBar {
+      background: white;
+      padding: 8px;
+      border-radius: 12px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #e2e8f0;
+      min-width: 400px;
+    }
+
+    #inlineAIPrompt {
+      flex-grow: 1;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      color: #334155;
+      padding: 4px 8px;
+    }
+
+    .inline-ai-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .inline-ai-btn:hover {
+      background: #2563eb;
+    }
+
+    .inline-ai-btn:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .inline-ai-shortcut {
+      color: #94a3b8;
+      font-size: 10px;
+      white-space: nowrap;
+    }
   </style>
 </head>
 
@@ -279,84 +327,12 @@
         markdown shortcuts.</p>
     </div>
 
-    <div
-      class="flex flex-nowrap items-center gap-2 mb-6 p-1.5 bg-white/70 backdrop-blur-2xl border border-white/40 rounded-2xl shadow-[0_12px_40px_-8px_rgba(0,0,0,0.08)] sticky top-4 z-[100] mx-4 sm:mx-0 overflow-x-auto no-scrollbar scroll-smooth">
-      <div class="flex items-center gap-1 shrink-0">
-        <button id="bold"
-          class="p-2.5 hover:bg-slate-200/50 rounded-xl text-slate-700 font-bold w-10 h-10 flex items-center justify-center transition-all hover:scale-105 active:scale-95">B</button>
-        <button id="italic"
-          class="p-2.5 hover:bg-slate-200/50 rounded-xl text-slate-700 italic w-10 h-10 flex items-center justify-center transition-all hover:scale-105 active:scale-95">I</button>
-      </div>
-      <div class="w-px h-6 bg-slate-200/60 mx-1 shrink-0"></div>
-      <div class="flex items-center gap-1 shrink-0">
-        <button id="h1"
-          class="p-2.5 hover:bg-slate-200/50 rounded-xl text-slate-700 font-bold text-xs w-10 h-10 flex items-center justify-center transition-all hover:scale-105 active:scale-95">H1</button>
-        <button id="h2"
-          class="p-2.5 hover:bg-slate-200/50 rounded-xl text-slate-700 font-bold text-xs w-10 h-10 flex items-center justify-center transition-all hover:scale-105 active:scale-95">H2</button>
-        <button id="h3"
-          class="p-2.5 hover:bg-slate-200/50 rounded-xl text-slate-700 font-bold text-xs w-10 h-10 flex items-center justify-center transition-all hover:scale-105 active:scale-95">H3</button>
-      </div>
-      <div class="w-px h-6 bg-slate-200/60 mx-1 shrink-0"></div>
-      <button
-        class="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl transition-all shrink-0">History</button>
-      <div class="w-px h-6 bg-slate-200/60 mx-1 shrink-0"></div>
-      <div class="flex-grow min-w-[20px] shrink-0"></div>
-      <button id="askAI"
-        class="px-5 py-2.5 text-xs font-black text-white bg-gradient-to-br from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 flex items-center gap-2 m-0.5 shrink-0 hover:shadow-blue-500/40">
-        <span class="text-sm">✨</span> Ask AI
-      </button>
-    </div>
-
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mx-4">
       <div id="editor"></div>
     </div>
 
 
-    <!-- Ask AI Modal -->
-    <div id="aiModal" class="hidden fixed inset-0 z-[110] flex items-center justify-center p-6 modal-overlay">
-      <div class="w-full max-w-lg modal-content rounded-2xl overflow-hidden flex flex-col bg-white">
-        <div
-          class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-blue-50/50 to-indigo-50/50">
-          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-tight flex items-center gap-2">
-            <span class="text-blue-600">✨</span> AI Writing Assistant
-          </h2>
-          <button id="closeAI" class="text-slate-400 hover:text-slate-600 transition-colors">✕</button>
-        </div>
-        <div class="p-6">
-          <div class="relative">
-            <input id="aiPrompt"
-              class="w-full p-4 pr-12 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all shadow-inner"
-              placeholder="What should I write? (e.g. 'Create a meeting agenda')" />
-            <div id="aiPulse"
-              class="hidden absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 bg-blue-500 rounded-full animate-ping">
-            </div>
-          </div>
-          <div class="mt-4 flex flex-wrap gap-2">
-            <button
-              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">📝
-              Blog Post</button>
-            <button
-              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">📋
-              Lesson Plan</button>
-            <button
-              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">✅
-              Task List</button>
-            <button
-              class="ai-chip px-3 py-1 text-[11px] font-medium bg-slate-100 text-slate-600 rounded-full hover:bg-blue-100 hover:text-blue-700 transition-colors">❓
-              MCQ Quiz</button>
-          </div>
-          <div class="mt-6 flex justify-end gap-3">
-            <button id="cancelAI"
-              class="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</button>
-            <button id="generateAI"
-              class="px-6 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-50">Generate</button>
-          </div>
-        </div>
-        <div id="aiLoadingBar" class="hidden h-1 bg-slate-100 w-full overflow-hidden">
-          <div class="h-full bg-blue-500 transition-all duration-[2000ms] ease-out w-0" id="aiProgress"></div>
-        </div>
-      </div>
-    </div>
+
 
     <!-- Inline AI Bar -->
     <div id="inlineAIBar" class="hidden fixed z-[120]">
@@ -370,59 +346,6 @@
       </div>
     </div>
 
-    <div id="slashMenu" class="hidden fixed z-50">
-      <div class="px-2 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Turn into</div>
-      <div data-action="paragraph" class="menu-item">
-        <div class="menu-icon">¶</div>
-        <div>
-          <div class="font-medium text-sm">Text</div>
-          <div class="text-[11px] text-slate-400">Just start writing...</div>
-        </div>
-      </div>
-      <div data-action="h1" class="menu-item">
-        <div class="menu-icon">H1</div>
-        <div>
-          <div class="font-medium text-sm">Heading 1</div>
-          <div class="text-[11px] text-slate-400">Large section heading</div>
-        </div>
-      </div>
-      <div data-action="h2" class="menu-item">
-        <div class="menu-icon">H2</div>
-        <div>
-          <div class="font-medium text-sm">Heading 2</div>
-          <div class="text-[11px] text-slate-400">Medium section heading</div>
-        </div>
-      </div>
-      <div data-action="h3" class="menu-item">
-        <div class="menu-icon">H3</div>
-        <div>
-          <div class="font-medium text-sm">Heading 3</div>
-          <div class="text-[11px] text-slate-400">Small section heading</div>
-        </div>
-      </div>
-      <div data-action="callout" class="menu-item">
-        <div class="menu-icon">💡</div>
-        <div>
-          <div class="font-medium text-sm">Callout</div>
-          <div class="text-[11px] text-slate-400">Highlight important info</div>
-        </div>
-      </div>
-      <div data-action="mcq" class="menu-item">
-        <div class="menu-icon">?</div>
-        <div>
-          <div class="font-medium text-sm">Question</div>
-          <div class="text-[11px] text-slate-400">Multiple choice with answer flow</div>
-        </div>
-      </div>
-      <div class="h-px bg-slate-100 my-1"></div>
-      <div data-action="ai" class="menu-item bg-blue-50/50 hover:bg-blue-100/50">
-        <div class="menu-icon bg-blue-100 text-blue-600">✨</div>
-        <div>
-          <div class="font-medium text-sm text-blue-700">Ask AI</div>
-          <div class="text-[11px] text-blue-500">Generate content with magic</div>
-        </div>
-      </div>
-    </div>
 
     <div class="mt-8 mx-4 space-y-4">
       <details class="group">
@@ -456,8 +379,8 @@
     import { Plugin } from 'https://esm.sh/prosemirror-state'
     import Suggestion from 'https://esm.sh/@tiptap/suggestion'
 
-    const GEMINI_API_KEY = 'AIzaSyCBz5MagPGpS36KsxibvwE7lNOkmdA4eqo'
-    // const GEMINI_API_KEY = 'AIzaSyAYNWEpCraR8YSmQ4QXC5HyPbXYfvBLSVg'
+    // const GEMINI_API_KEY = 'AIzaSyCBz5MagPGpS36KsxibvwE7lNOkmdA4eqo'
+    const GEMINI_API_KEY = 'AIzaSyAYNWEpCraR8YSmQ4QXC5HyPbXYfvBLSVg'
     const GEMINI_URL =
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`
 
@@ -1036,38 +959,6 @@
     }
 
 
-    /* -------------------- TOOLBAR -------------------- */
-
-    document.getElementById('bold').onclick =
-      () => editor.chain().focus().toggleBold().run()
-    document.getElementById('italic').onclick =
-      () => editor.chain().focus().toggleItalic().run()
-    document.getElementById('h1').onclick =
-      () => editor.chain().focus().toggleHeading({ level: 1 }).run()
-    document.getElementById('h2').onclick =
-      () => editor.chain().focus().toggleHeading({ level: 2 }).run()
-    document.getElementById('h3').onclick =
-      () => editor.chain().focus().toggleHeading({ level: 3 }).run()
-
-    /* -------------------- AI MODAL LOGIC -------------------- */
-    const aiModal = document.getElementById('aiModal')
-    const aiPrompt = document.getElementById('aiPrompt')
-    const generateBtn = document.getElementById('generateAI')
-
-    function openAI() {
-      aiModal.classList.remove('hidden')
-      setTimeout(() => document.body.classList.add('modal-active'), 10)
-      aiPrompt.focus()
-    }
-
-    function closeAI() {
-      document.body.classList.remove('modal-active')
-      setTimeout(() => aiModal.classList.add('hidden'), 300)
-    }
-
-    document.getElementById('askAI').onclick = openAI
-    document.getElementById('closeAI').onclick = closeAI
-    document.getElementById('cancelAI').onclick = closeAI
 
     /* -------------------- INLINE AI LOGIC -------------------- */
     const inlineAIBar = document.getElementById('inlineAIBar')
@@ -1075,6 +966,12 @@
     const inlineAIGenerate = document.getElementById('inlineAIGenerate')
 
     function openInlineAI(prefill = '') {
+      // If already open, just focus
+      if (!inlineAIBar.classList.contains('hidden') && !prefill) {
+        inlineAIPrompt.focus()
+        return
+      }
+
       const { selection } = editor.state
       const { from, to, empty } = selection
       const coords = editor.view.coordsAtPos(from)
@@ -1112,18 +1009,27 @@
     function closeInlineAI() {
       inlineAIBar.classList.add('hidden')
       inlineAIPrompt.value = ''
+      editor.chain().focus().run()
     }
+
+    // Close on Escape or Click Outside
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !inlineAIBar.classList.contains('hidden')) {
+        closeInlineAI()
+      }
+    })
+
+    document.addEventListener('click', (e) => {
+      if (!inlineAIBar.classList.contains('hidden') &&
+        !inlineAIBar.contains(e.target) &&
+        !e.target.closest('.slash-popup')) { // Don't close if clicking slash menu
+        closeInlineAI()
+      }
+    })
 
     async function callGeminiAI(prompt) {
       /* -------------------- API CALL -------------------- */
-      const pulse = document.getElementById('aiPulse')
-      const loading = document.getElementById('aiLoadingBar')
-      const progress = document.getElementById('aiProgress')
 
-      pulse.classList.remove('hidden')
-      loading.classList.remove('hidden')
-      progress.style.width = '0%'
-      setTimeout(() => progress.style.width = '100%', 10)
 
       const systemPrompt = `
 You are a professional writing assistant.
@@ -1181,37 +1087,17 @@ They must be standalone blocks.
         const result =
           data.candidates?.[0]?.content?.parts?.[0]?.text || ''
 
-        pulse.classList.add('hidden')
-        loading.classList.add('hidden')
+
 
         return result.trim()
 
       } catch (err) {
-        pulse.classList.add('hidden')
-        loading.classList.add('hidden')
         console.error(err)
         return `! AI Error: ${err.message}`
       }
     }
 
-    document.getElementById('generateAI').onclick = async () => {
-      const prompt = aiPrompt.value.trim()
-      if (!prompt) return
 
-      generateBtn.disabled = true
-      generateBtn.textContent = 'Generating...'
-
-      const markdown = await callGeminiAI(prompt)
-
-      insertAI(markdown)
-
-
-
-      generateBtn.disabled = false
-      generateBtn.textContent = 'Generate'
-
-      closeAI()
-    }
 
     inlineAIPrompt.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
