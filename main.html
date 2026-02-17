@@ -4,27 +4,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TipTap — Premium Document Editor</title>
+  <title>TipTap — Premium Editor</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <link
-    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 
   <style>
-    /* Premium Design System Tokens */
+    /* Premium Design System */
     :root {
       --plate-bg: #ffffff;
       --plate-border: #e2e8f0;
-      --plate-hover: #f1f5f9;
       --plate-accent: #3b82f6;
       --font-outfit: 'Outfit', sans-serif;
       --font-inter: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
     }
 
     body {
       font-family: var(--font-inter);
-      background: radial-gradient(circle at top right, #f8fafc, #eff6ff);
+      background: #f8fafc;
       min-height: 100vh;
       color: #1e293b;
     }
@@ -44,11 +46,13 @@
       background: #94a3b8;
     }
 
-    /* Editor Specific Styles */
+    /* Editor Canvas */
     .ProseMirror {
       outline: none;
-      min-height: 500px;
+      min-height: 600px;
       padding: 60px 80px;
+      font-size: 1.05rem;
+      line-height: 1.8;
     }
 
     @media (max-width: 768px) {
@@ -57,66 +61,63 @@
       }
     }
 
-    .ProseMirror h1 {
-      font-size: 2.5rem;
-      font-weight: 800;
-      margin-top: 2rem;
-      margin-bottom: 1rem;
+    /* Typography */
+    .ProseMirror h1,
+    .ProseMirror h2,
+    .ProseMirror h3 {
       font-family: var(--font-outfit);
       color: #0f172a;
+      line-height: 1.2;
+    }
+
+    .ProseMirror h1 {
+      font-size: 2.75rem;
+      font-weight: 800;
+      margin: 2.5rem 0 1.5rem;
     }
 
     .ProseMirror h2 {
-      font-size: 1.875rem;
+      font-size: 2rem;
       font-weight: 700;
-      margin-top: 1.5rem;
-      margin-bottom: 0.75rem;
-      font-family: var(--font-outfit);
-      color: #1e293b;
+      margin: 2rem 0 1rem;
     }
 
     .ProseMirror h3 {
       font-size: 1.5rem;
       font-weight: 600;
-      margin-top: 1.25rem;
-      margin-bottom: 0.5rem;
-      font-family: var(--font-outfit);
-      color: #334155;
+      margin: 1.5rem 0 0.75rem;
     }
 
     .ProseMirror p {
-      margin: 1rem 0;
-      line-height: 1.7;
+      margin-bottom: 1.25rem;
     }
 
-    /* Selection & Drag Handle */
+    .ProseMirror a {
+      color: var(--plate-accent);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    /* Drag Handle */
     .ProseMirror>* {
       position: relative;
-      padding: 4px 0;
-      transition: all 0.2s ease;
-    }
-
-    .ProseMirror>*::before {
-      content: "⠿";
-      position: absolute;
-      left: -40px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: #cbd5e1;
-      font-size: 20px;
-      opacity: 0;
-      transition: all 0.2s;
-      cursor: grab;
-      width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 6px;
     }
 
     .ProseMirror>*:hover::before {
-      opacity: 1;
+      content: "⋮⋮";
+      position: absolute;
+      left: -35px;
+      top: 0;
+      color: #cbd5e1;
+      font-size: 16px;
+      cursor: grab;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: all 0.2s;
     }
 
     .ProseMirror>*:hover::before:hover {
@@ -124,13 +125,24 @@
       color: var(--plate-accent);
     }
 
-    /* Placeholder */
-    .ProseMirror p.is-editor-empty:first-child::before {
-      content: attr(data-placeholder);
-      float: left;
-      color: #94a3b8;
-      pointer-events: none;
-      height: 0;
+    /* Lists */
+    .ProseMirror ul,
+    .ProseMirror ol {
+      padding: 0 1rem;
+      margin: 1.25rem 1rem 1.25rem 0.4rem;
+    }
+
+    .ProseMirror ul li {
+      list-style-type: disc;
+    }
+
+    .ProseMirror ol li {
+      list-style-type: decimal;
+    }
+
+    .ProseMirror li {
+      margin-bottom: 0.5rem;
+      padding-left: 0.5rem;
     }
 
     /* Task List */
@@ -141,16 +153,26 @@
 
     ul[data-type="taskList"] li {
       display: flex;
-      align-items: flex-start;
       gap: 12px;
-      margin: 8px 0;
+      margin-bottom: 8px;
+      align-items: flex-start;
+    }
+
+    ul[data-type="taskList"] li>label {
+      flex: 0 0 auto;
+      margin-right: 0.5rem;
+      user-select: none;
+      margin-top: 0.3em;
+    }
+
+    ul[data-type="taskList"] li>div {
+      flex: 1 1 auto;
     }
 
     ul[data-type="taskList"] input[type="checkbox"] {
-      margin-top: 6px;
       cursor: pointer;
-      width: 18px;
-      height: 18px;
+      width: 1.1em;
+      height: 1.1em;
       accent-color: var(--plate-accent);
     }
 
@@ -159,1071 +181,991 @@
       color: #94a3b8;
     }
 
-    /* Custom Nodes */
-    .callout {
-      display: flex;
-      gap: 16px;
-      background: white;
-      border: 1px solid #e2e8f0;
-      padding: 24px;
-      border-radius: 16px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    /* Blockquote */
+    .ProseMirror blockquote {
+      border-left: 4px solid var(--plate-accent);
       margin: 1.5rem 0;
+      padding-left: 1rem;
+      font-style: italic;
+      color: #475569;
+      background: #f8fafc;
+      padding: 1rem;
+      border-radius: 0 8px 8px 0;
+    }
+
+    /* Code Block */
+    pre {
+      background: #0d1117;
+      border-radius: 0.75rem;
+      color: #c9d1d9;
+      font-family: var(--font-mono);
+      padding: 2.5rem 1.5rem 1.5rem;
+      margin: 1.5rem 0;
+      position: relative;
+      overflow-x: auto;
+    }
+
+    pre code {
+      background: none;
+      color: inherit;
+      font-size: 0.85rem;
+      padding: 0;
+    }
+
+    .hljs-comment,
+    .hljs-quote {
+      color: #8b949e;
+    }
+
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-tag,
+    .hljs-name,
+    .hljs-selector-id,
+    .hljs-selector-class,
+    .hljs-regexp,
+    .hljs-deletion {
+      color: #d2a8ff;
+    }
+
+    .hljs-number,
+    .hljs-built_in,
+    .hljs-builtin-name,
+    .hljs-literal,
+    .hljs-type,
+    .hljs-params,
+    .hljs-meta,
+    .hljs-link {
+      color: #79c0ff;
+    }
+
+    .hljs-section,
+    .hljs-title {
+      color: #d2a8ff;
+    }
+
+    .hljs-keyword,
+    .hljs-selector-tag {
+      color: #ff7b72;
+    }
+
+    /* Language Selecror */
+    .language-selector {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 2px 6px;
+      z-index: 10;
+      opacity: 0.5;
+      transition: opacity 0.2s;
+      cursor: pointer;
+    }
+
+    .code-block-wrapper:hover .language-selector {
+      opacity: 1;
+    }
+
+    /* Tables */
+    .tableWrapper {
+      margin: 2rem 0;
+      overflow-x: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 100%;
+      margin: 0;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    td,
+    th {
+      min-width: 1em;
+      border: 1px solid #cbd5e1;
+      padding: 10px 12px;
+      vertical-align: top;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    th {
+      font-weight: 600;
+      text-align: left;
+      background-color: #f1f5f9;
+    }
+
+    .selectedCell:after {
+      z-index: 2;
+      position: absolute;
+      content: "";
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      background: rgba(59, 130, 246, 0.15);
+      pointer-events: none;
+    }
+
+    /* Images & Video */
+    img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 12px;
+      margin: 1.5rem 0;
+      display: block;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    iframe {
+      width: 100%;
+      aspect-ratio: 16/9;
+      border-radius: 12px;
+      margin: 1.5rem 0;
+      border: none;
+      background: #000;
+    }
+
+    /* Callouts */
+    .callout {
+      padding: 1.25rem;
+      border-radius: 0.75rem;
+      margin: 1.5rem 0;
+      border: 1px solid transparent;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+
+    .callout-info {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1e40af;
+    }
+
+    .callout-success {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+      color: #166534;
+    }
+
+    .callout-warning {
+      background: #fffbeb;
+      border-color: #fde68a;
+      color: #92400e;
+    }
+
+    .callout-error {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #991b1b;
+    }
+
+    .callout div p {
+      margin: 0;
     }
 
     .callout-icon {
-      font-size: 1.5rem;
-      flex-shrink: 0;
+      font-size: 1.25rem;
+      line-height: 1;
+      user-select: none;
     }
 
-    .callout-content {
-      flex-grow: 1;
+    /* Page Break */
+    .page-break {
+      margin: 2rem 0;
+      border: none;
+      border-top: 2px dashed #cbd5e1;
+      position: relative;
+      height: 1px;
     }
 
-    .mcq {
+    .page-break::after {
+      content: "Page Break";
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #f8fafc;
+      padding: 0 10px;
+      color: #94a3b8;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    /* Math Block */
+    .math-block {
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      text-align: center;
+      margin: 1.5rem 0;
+      cursor: pointer;
+      transition: border 0.2s;
+    }
+
+    .math-block:hover {
+      border-color: var(--plate-accent);
+    }
+
+    .katex-display {
+      margin: 0 !important;
+    }
+
+    /* Slash Menu */
+    .slash-popup {
       background: white;
       border: 1px solid #e2e8f0;
-      padding: 24px;
-      border-radius: 16px;
-      margin: 1.5rem 0;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-    }
-
-    .mcq-content>h2:first-child {
-      font-size: 1.25rem;
-      font-weight: 700;
-      margin-bottom: 1.5rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid #f1f5f9;
-    }
-
-    .mcq-content>p:not(:first-child) {
-      padding: 12px 16px;
-      border: 2px solid #f1f5f9;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
       border-radius: 12px;
-      margin: 8px 0;
-      cursor: pointer;
+      width: 300px;
+      max-height: 360px;
+      overflow-y: auto;
+      padding: 0.5rem;
+      z-index: 50;
+      display: none;
+      /* hidden initially */
+    }
+
+    .slash-group {
+      margin-bottom: 0.5rem;
+    }
+
+    .slash-group-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #94a3b8;
+      padding: 0.5rem 0.75rem 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .slash-item {
       display: flex;
       align-items: center;
-      transition: all 0.2s;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: #334155;
+      font-size: 0.9rem;
+      transition: all 0.15s;
     }
 
-    .mcq-content>p:not(:first-child):hover {
-      border-color: var(--plate-accent);
+    .slash-item:hover {
       background: #f8fafc;
     }
 
-    .mcq-content>p:not(:first-child)::before {
-      content: "";
-      width: 18px;
-      height: 18px;
-      border: 2px solid #cbd5e1;
-      border-radius: 50%;
-      margin-right: 12px;
+    .slash-item.is-selected {
+      background: #eff6ff;
+      color: #2563eb;
     }
 
-    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2),
-    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3),
-    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4),
-    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5) {
-      background: #f0fdf4;
-      border-color: #22c55e;
-      color: #15803d;
-      font-weight: 600;
-    }
-
-    .mcq[data-correct-index="1"] .mcq-content>p:nth-child(2)::before,
-    .mcq[data-correct-index="2"] .mcq-content>p:nth-child(3)::before,
-    .mcq[data-correct-index="3"] .mcq-content>p:nth-child(4)::before,
-    .mcq[data-correct-index="4"] .mcq-content>p:nth-child(5)::before {
-      background: #22c55e;
-      border-color: #22c55e;
-      box-shadow: inset 0 0 0 3px #f0fdf4;
-    }
-
-    /* Modal Animation */
-    @keyframes modalIn {
-      from {
-        opacity: 0;
-        transform: scale(0.95) translateY(20px);
-      }
-
-      to {
-        opacity: 1;
-        transform: scale(1) translateY(0);
-      }
-    }
-
-    .modal-content {
-      animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
-
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-
-    /* Inline AI Bar */
-    #inlineAIBar {
-      background: white;
-      padding: 8px;
-      border-radius: 12px;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    .slash-item-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: center;
+      background: #f1f5f9;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+
+    .slash-item.is-selected .slash-item-icon {
+      background: #dbeafe;
+      color: #2563eb;
+    }
+
+    /* Placeholders */
+    .is-empty::before {
+      content: attr(data-placeholder);
+      float: left;
+      color: #adb5bd;
+      pointer-events: none;
+      height: 0;
+    }
+
+    /* Modal System */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .modal-card {
+      background: white;
+      width: 100%;
+      max-width: 420px;
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      transform: scale(0.95);
+      transition: transform 0.2s;
+    }
+
+    .modal-overlay.active .modal-card {
+      transform: scale(1);
+    }
+
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: #0f172a;
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 10px 14px;
       border: 1px solid #e2e8f0;
-      min-width: 400px;
-    }
-
-    #inlineAIPrompt {
-      flex-grow: 1;
-      border: none;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
       outline: none;
-      font-size: 14px;
-      color: #334155;
-      padding: 4px 8px;
+      transition: border-color 0.2s;
     }
 
-    .inline-ai-btn {
-      background: #3b82f6;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
+    .modal-input:focus {
+      border-color: var(--plate-accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 0.9rem;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: all 0.2s;
     }
 
-    .inline-ai-btn:hover {
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+
+    .btn-primary {
+      background: var(--plate-accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
       background: #2563eb;
     }
 
-    .inline-ai-btn:disabled {
-      background: #94a3b8;
-      cursor: not-allowed;
+    /* Bubble Menu (Tables) */
+    .bubble-menu {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      display: flex;
+      padding: 4px;
+      gap: 4px;
+      position: absolute;
+      z-index: 20;
     }
 
-    .inline-ai-shortcut {
-      color: #94a3b8;
-      font-size: 10px;
-      white-space: nowrap;
+    .bubble-menu.hidden {
+      display: none;
+    }
+
+    .bubble-btn {
+      background: transparent;
+      border: none;
+      color: #64748b;
+      padding: 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+    }
+
+    .bubble-btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
     }
   </style>
 </head>
 
-<body class="bg-gray-50 flex flex-col items-center py-12">
+<body class="flex flex-col items-center py-12">
 
-  <div class="w-full max-w-4xl lg:px-8">
-    <div class="mb-8 px-6 lg:px-0 mt-6 select-none">
-      <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Document Editor</h1>
-      <p class="text-slate-500 text-sm sm:text-base mt-1">Type <code
-          class="bg-slate-200 px-1.5 py-0.5 rounded-md font-mono text-xs text-slate-700">/</code> for commands or use
-        markdown shortcuts.</p>
+  <div class="w-full max-w-5xl lg:px-8">
+    <!-- Header -->
+    <div class="mb-10 px-6 lg:px-0 text-center">
+      <h1 class="text-4xl font-extrabold tracking-tight text-slate-900 mb-2 font-[Outfit]">Premium Editor</h1>
+      <p class="text-slate-500">
+        Type <code class="bg-white border border-slate-200 px-1.5 py-0.5 rounded text-sm mx-1 shadow-sm">/</code> to
+        browse commands
+      </p>
     </div>
 
-    <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mx-4">
+    <!-- Editor Container -->
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden min-h-[80vh] mx-4 relative">
       <div id="editor"></div>
     </div>
 
-
-
-
-    <!-- Inline AI Bar -->
-    <div id="inlineAIBar" class="hidden fixed z-[120]">
-      <div class="flex items-center gap-2 pl-2">
-        <span class="text-blue-500 text-lg">✨</span>
-      </div>
-      <input id="inlineAIPrompt" type="text" placeholder="Tell AI what to write..." />
-      <div class="flex items-center gap-2 pr-1">
-        <span class="inline-ai-shortcut text-[10px]">Enter to generate</span>
-        <button id="inlineAIGenerate" class="inline-ai-btn">Generate</button>
-      </div>
+    <div
+      class="mt-8 bg-slate-100 rounded-lg p-4 mx-4 text-xs font-mono text-slate-600 overflow-auto max-h-96 w-full max-w-5xl">
+      <div class="font-bold mb-2">Debug JSON:</div>
+      <pre id="debug-json">{}</pre>
     </div>
+  </div>
 
+  <!-- Table Controls (Bubble Menu Container) -->
+  <div id="table-bubble-menu" class="hidden">
+    <!-- Buttons injected by JS -->
+  </div>
 
-    <div class="mt-8 mx-4 space-y-4">
-      <details class="group">
-        <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600 flex items-center gap-2">
-          <span class="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
-          View Live Markdown
-        </summary>
-        <pre id="markdownPreview"
-          class="mt-4 bg-slate-900 text-slate-300 text-[11px] p-6 rounded-xl overflow-auto leading-relaxed border border-slate-800 shadow-2xl"></pre>
-      </details>
-
-      <details class="group">
-        <summary class="text-xs text-slate-400 cursor-pointer hover:text-slate-600 flex items-center gap-2">
-          <span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
-          View Node Tree (JSON)
-        </summary>
-        <pre id="jsonPreview"
-          class="mt-4 bg-slate-900 text-slate-300 text-[11px] p-6 rounded-xl overflow-auto leading-relaxed border border-slate-800 shadow-2xl"></pre>
-      </details>
+  <!-- Universal Modal -->
+  <div id="ui-modal" class="modal-overlay">
+    <div class="modal-card">
+      <h3 id="modal-title" class="modal-title">Insert Content</h3>
+      <input type="text" id="modal-input" class="modal-input" placeholder="https://..." />
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn btn-secondary">Cancel</button>
+        <button id="modal-confirm" class="btn btn-primary">Insert</button>
+      </div>
     </div>
   </div>
 
   <script type="module">
-    import { Editor, Node, mergeAttributes, Extension } from 'https://esm.sh/@tiptap/core'
-    import StarterKit from 'https://esm.sh/@tiptap/starter-kit'
-    import TaskList from 'https://esm.sh/@tiptap/extension-task-list'
-    import TaskItem from 'https://esm.sh/@tiptap/extension-task-item'
-    import Link from 'https://esm.sh/@tiptap/extension-link'
-    import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule'
-    import markdownit from 'https://esm.sh/markdown-it'
-    import { Plugin } from 'https://esm.sh/prosemirror-state'
-    import Suggestion from 'https://esm.sh/@tiptap/suggestion'
+    import { Editor, Node, mergeAttributes, Extension } from 'https://esm.sh/@tiptap/core@2.2.4?bundle';
+    import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4?bundle';
+    import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2.2.4?bundle';
+    import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2.2.4?bundle';
+    import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2.2.4?bundle';
+    import Link from 'https://esm.sh/@tiptap/extension-link@2.2.4?bundle';
+    import Image from 'https://esm.sh/@tiptap/extension-image@2.2.4?bundle';
+    import Table from 'https://esm.sh/@tiptap/extension-table@2.2.4?bundle';
+    import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2.2.4?bundle';
+    import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2.2.4?bundle';
+    import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2.2.4?bundle';
+    import Youtube from 'https://esm.sh/@tiptap/extension-youtube@2.2.4?bundle';
+    import { BubbleMenu } from 'https://esm.sh/@tiptap/extension-bubble-menu@2.2.4?bundle';
+    import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowlight@2.2.4?bundle';
+    import { common, createLowlight } from 'https://esm.sh/lowlight?bundle';
+    import katex from 'https://esm.sh/katex';
+    import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.2.4?bundle';
+    import { Plugin } from 'https://esm.sh/prosemirror-state?bundle';
 
-    // const GEMINI_API_KEY = 'AIzaSyCBz5MagPGpS36KsxibvwE7lNOkmdA4eqo'
-    const GEMINI_API_KEY = 'AIzaSyAYNWEpCraR8YSmQ4QXC5HyPbXYfvBLSVg'
-    const GEMINI_URL =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`
+    // Initialize Lowlight (Syntax Highlighting)
+    const lowlight = createLowlight(common);
 
+    /* --- Custom UI Helpers --- */
+    const Modal = {
+      overlay: document.getElementById('ui-modal'),
+      title: document.getElementById('modal-title'),
+      input: document.getElementById('modal-input'),
+      confirm: document.getElementById('modal-confirm'),
+      cancel: document.getElementById('modal-cancel'),
+      resolve: null,
 
-    const md = markdownit({ html: false, linkify: true })
+      open(title, placeholder = 'Enter URL...') {
+        this.title.textContent = title;
+        this.input.placeholder = placeholder;
+        this.input.value = '';
+        this.overlay.classList.add('active');
+        this.input.focus();
 
-    const STORAGE_KEY = 'tiptap-plate-design'
+        return new Promise((resolve) => {
+          this.resolve = resolve;
+        });
+      },
 
-    /* -------------------- CUSTOM BLOCK PARSER -------------------- */
+      close() {
+        this.overlay.classList.remove('active');
+        this.resolve = null;
+      }
+    };
 
-    function markdownToJSON(text) {
-      const lines = text.split('\n')
-      const content = []
-      let i = 0
+    Modal.confirm.onclick = () => {
+      if (Modal.resolve) Modal.resolve(Modal.input.value);
+      Modal.close();
+    };
 
-      while (i < lines.length) {
-        const line = lines[i].trim()
+    Modal.cancel.onclick = () => {
+      if (Modal.resolve) Modal.resolve(null);
+      Modal.close();
+    };
 
-        if (!line) {
-          i++
-          continue
+    Modal.input.onkeydown = (e) => {
+      if (e.key === 'Enter') Modal.confirm.click();
+      if (e.key === 'Escape') Modal.cancel.click();
+    };
+
+    /* --- Custom Nodes --- */
+
+    // 1. Math Block
+    const MathBlock = Node.create({
+      name: 'mathBlock',
+      group: 'block',
+      atom: true,
+
+      addAttributes() {
+        return {
+          text: { default: 'E = mc^2' }
         }
+      },
 
-        /* ---------- HEADING ---------- */
-        if (line.startsWith('#')) {
-          const level = line.match(/^#+/)[0].length
-          const text = line.replace(/^#+\s*/, '')
+      parseHTML() {
+        return [{ tag: 'div[data-type="math-block"]' }]
+      },
 
-          content.push({
-            type: 'heading',
-            attrs: { level },
-            content: [{ type: 'text', text }]
-          })
+      renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'math-block' })]
+      },
 
-          i++
-          continue
-        }
+      addNodeView() {
+        return ({ node, getPos, editor }) => {
+          const dom = document.createElement('div');
+          dom.classList.add('math-block');
+          dom.title = 'Click to edit formula';
 
-        /* ---------- CALLOUT ---------- */
-        if (line.startsWith('! ')) {
-          const calloutContent = []
-
-          while (i < lines.length && lines[i].startsWith('! ')) {
-            calloutContent.push({
-              type: 'paragraph',
-              content: [{ type: 'text', text: lines[i].slice(2) }]
-            })
-            i++
-          }
-
-          content.push({
-            type: 'callout',
-            content: calloutContent
-          })
-
-          continue
-        }
-
-        /* ---------- MCQ ---------- */
-        if (line.startsWith('? ')) {
-          const question = line.slice(2)
-          const options = []
-          let correctIndex = null
-          i++
-
-          while (i < lines.length && /^\(( |x|X)\)\s/.test(lines[i])) {
-            const match = lines[i].match(/^\(( |x|X)\)\s+(.*)/)
-            if (match) {
-              if (match[1].toLowerCase() === 'x') {
-                correctIndex = options.length + 1
-              }
-              options.push({
-                type: 'paragraph',
-                content: [{ type: 'text', text: match[2] }]
-              })
+          const render = () => {
+            dom.innerHTML = '';
+            try {
+              katex.render(node.attrs.text, dom, {
+                throwOnError: false,
+                displayMode: true
+              });
+            } catch (e) {
+              dom.textContent = e.message;
             }
-            i++
-          }
+          };
 
-          content.push({
-            type: 'mcq',
-            attrs: { correctIndex },
-            content: [
-              {
-                type: 'heading',
-                attrs: { level: 2 },
-                content: [{ type: 'text', text: question }]
-              },
-              ...options
-            ]
-          })
+          render();
 
-          continue
-        }
+          dom.addEventListener('click', () => {
+            const newEq = prompt('Edit Equation (LaTeX):', node.attrs.text);
+            if (newEq !== null && getPos) {
+              editor.commands.updateAttributes(getPos(), { text: newEq });
+            }
+          });
 
-        /* ---------- BULLET LIST ---------- */
-        if (line.startsWith('- ')) {
-          const items = []
-
-          while (i < lines.length && lines[i].startsWith('- ')) {
-            items.push({
-              type: 'listItem',
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: lines[i].slice(2) }]
-                }
-              ]
-            })
-            i++
-          }
-
-          content.push({
-            type: 'bulletList',
-            content: items
-          })
-
-          continue
-        }
-
-        /* ---------- TASK LIST ---------- */
-        if (line.startsWith('[ ] ')) {
-          content.push({
-            type: 'taskList',
-            content: [
-              {
-                type: 'taskItem',
-                attrs: { checked: false },
-                content: [
-                  {
-                    type: 'paragraph',
-                    content: [{ type: 'text', text: line.slice(4) }]
-                  }
-                ]
+          return {
+            dom,
+            update: (updatedNode) => {
+              if (updatedNode.type.name !== 'mathBlock') return false;
+              if (updatedNode.attrs.text !== node.attrs.text) {
+                node = updatedNode;
+                render();
               }
-            ]
-          })
-
-          i++
-          continue
+              return true;
+            }
+          };
         }
-
-        /* ---------- HORIZONTAL RULE ---------- */
-        if (line === '---') {
-          content.push({ type: 'horizontalRule' })
-          i++
-          continue
-        }
-
-        /* ---------- PARAGRAPH ---------- */
-        content.push({
-          type: 'paragraph',
-          content: [{ type: 'text', text: line }]
-        })
-
-        i++
       }
+    });
 
-      return {
-        type: 'doc',
-        content
-      }
-    }
-
-    /* -------------------- CALLOUT NODE -------------------- */
-
+    // 2. Callout
     const Callout = Node.create({
       name: 'callout',
       group: 'block',
       content: 'block+',
       draggable: true,
-
-      parseHTML() {
-        return [{ tag: 'div[data-type="callout"]' }]
-      },
-
-      renderHTML({ HTMLAttributes }) {
-        return [
-          'div',
-          mergeAttributes(HTMLAttributes, { class: 'callout' }),
-          ['div', { class: 'callout-icon', contenteditable: 'false' }, '💡'],
-          ['div', { class: 'callout-content' }, 0],
-        ]
-      },
-    })
-
-    /* -------------------- MCQ NODE -------------------- */
-
-    const MCQ = Node.create({
-      name: 'mcq',
-      group: 'block',
-      content: 'heading paragraph+',
-      draggable: true,
-
       addAttributes() {
         return {
-          correctIndex: {
-            default: null,
-            parseHTML: el => el.getAttribute('data-correct-index'),
-            renderHTML: attrs =>
-              attrs.correctIndex
-                ? { 'data-correct-index': attrs.correctIndex }
-                : {},
-          },
+          type: { default: 'info' }
         }
       },
-
       parseHTML() {
-        return [{ tag: 'div[data-type="mcq"]' }]
+        return [{
+          tag: 'div[data-type="callout"]',
+          contentElement: '.callout-content' // Tell Tiptap to look for content HERE
+        }]
       },
-
       renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(HTMLAttributes, { class: 'mcq' }), 0]
-      },
+        let icon = '💡';
+        if (HTMLAttributes.type === 'success') icon = '✅';
+        if (HTMLAttributes.type === 'warning') icon = '⚠️';
+        if (HTMLAttributes.type === 'error') icon = '⛔';
 
+        return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout-${HTMLAttributes.type}` }),
+          ['span', { class: 'callout-icon', contenteditable: 'false' }, icon],
+          ['div', { class: 'callout-content' }, 0]
+        ]
+      }
+    });
+
+    // 3. Page Break
+    const PageBreak = Node.create({
+      name: 'pageBreak',
+      group: 'block',
+      atom: true,
+      parseHTML() { return [{ tag: 'div.page-break' }] },
+      renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { class: 'page-break' })]
+      }
+    });
+
+    // 4. DateTime
+    const DateTime = Node.create({
+      name: 'datetime',
+      group: 'inline',
+      inline: true,
+      atom: true,
+      addAttributes() { return { value: { default: null }, format: { default: 'date' } } },
+      renderHTML({ HTMLAttributes }) {
+        const date = new Date(HTMLAttributes.value || Date.now());
+        let text = date.toLocaleDateString();
+        if (HTMLAttributes.format === 'time') text = date.toLocaleTimeString();
+        if (HTMLAttributes.format === 'datetime') text = date.toLocaleString();
+
+        return ['span', { class: 'bg-gray-100 px-1.5 py-0.5 rounded text-sm text-gray-600 font-mono' }, text];
+      }
+    });
+
+    // 5. Custom Code Block with Selector
+    const CustomCodeBlock = CodeBlockLowlight.extend({
       addNodeView() {
-        return ({ node, editor }) => {
-          const container = document.createElement('div')
-          container.classList.add('mcq')
+        return ({ node, editor, getPos, extension }) => {
+          const dom = document.createElement('div');
+          dom.style.position = 'relative';
+          dom.className = 'code-block-wrapper';
 
-          if (node.attrs.correctIndex) {
-            container.setAttribute('data-correct-index', node.attrs.correctIndex)
-          }
+          const select = document.createElement('select');
+          select.className = 'language-selector';
+          select.contentEditable = 'false';
 
-          const content = document.createElement('div')
-          content.classList.add('mcq-content')
-          container.append(content)
+          // Common languages
+          const langs = ['javascript', 'css', 'html', 'python', 'java', 'cpp', 'typescript', 'json', 'bash', 'go', 'rust'];
 
-          container.addEventListener('click', e => {
-            const option = e.target.closest('.mcq-content > p:not(:first-child)')
-            if (!option) return
+          langs.forEach(lang => {
+            const option = document.createElement('option');
+            option.value = lang;
+            option.innerText = lang;
+            if (lang === node.attrs.language) option.selected = true;
+            select.appendChild(option);
+          });
 
-            const index = Array.from(option.parentElement.children).indexOf(option)
-            const newIndex =
-              node.attrs.correctIndex == index ? null : index
+          select.addEventListener('change', (e) => {
+            if (typeof getPos === 'function') {
+              editor.commands.updateAttributes(getPos(), { language: e.target.value });
+            }
+          });
 
-            editor.commands.updateAttributes('mcq', {
-              correctIndex: newIndex,
-            })
-          })
+          const pre = document.createElement('pre');
+          const code = document.createElement('code');
+
+          pre.append(code);
+          dom.append(select, pre);
 
           return {
-            dom: container,
-            contentDOM: content,
-            update(updatedNode) {
-              if (updatedNode.type.name !== 'mcq') return false
-
-              if (updatedNode.attrs.correctIndex) {
-                container.setAttribute(
-                  'data-correct-index',
-                  updatedNode.attrs.correctIndex
-                )
-              } else {
-                container.removeAttribute('data-correct-index')
+            dom,
+            contentDOM: code,
+            update: (updatedNode) => {
+              if (updatedNode.type.name !== this.name) return false;
+              if (updatedNode.attrs.language !== node.attrs.language) {
+                select.value = updatedNode.attrs.language;
               }
-
-              return true
-            },
-          }
+              return true;
+            }
+          };
         }
-      },
-    })
+      }
+    });
 
-
-    const slashItems = [
+    /* --- Slash Menu Configuration --- */
+    const slashGroups = [
       {
-        title: 'Heading 1',
-        command: ({ editor, range }) => {
-          editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run()
-        }
-      },
-      {
-        title: 'Heading 2',
-        command: ({ editor, range }) => {
-          editor.chain().focus().deleteRange(range).toggleHeading({ level: 2 }).run()
-        }
+        title: 'Text',
+        items: [
+          { title: 'Paragraph', icon: 'T', action: editor => editor.chain().focus().setParagraph().run() },
+          { title: 'Heading 1', icon: 'H1', action: editor => editor.chain().focus().toggleHeading({ level: 1 }).run() },
+          { title: 'Heading 2', icon: 'H2', action: editor => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+          { title: 'Heading 3', icon: 'H3', action: editor => editor.chain().focus().toggleHeading({ level: 3 }).run() },
+          { title: 'Bullet List', icon: '•', action: editor => editor.chain().focus().toggleBulletList().run() },
+          { title: 'Numbered List', icon: '1.', action: editor => editor.chain().focus().toggleOrderedList().run() },
+        ]
       },
       {
-        title: 'Paragraph',
-        command: ({ editor, range }) => {
-          editor.chain().focus().deleteRange(range).setParagraph().run()
-        }
-      },
-      {
-        title: 'Callout',
-        command: ({ editor, range }) => {
-          editor.chain().focus().deleteRange(range).insertContent({
-            type: 'callout',
-            content: [
-              { type: 'paragraph', content: [{ type: 'text', text: 'Important note...' }] }
-            ]
-          }).run()
-        }
-      },
-      {
-        title: 'MCQ',
-        command: ({ editor, range }) => {
-          editor.chain().focus().deleteRange(range)
-            .insertContent({
-              type: 'mcq',
-              attrs: { correctIndex: null },
-              content: [
-                {
-                  type: 'heading',
-                  attrs: { level: 2 },
-                  content: [{ type: 'text', text: 'Question?' }]
-                },
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: 'Option A' }]
-                },
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: 'Option B' }]
-                }
-              ]
-            })
-            .run()
-        }
-      },
-      {
-        title: 'Ask AI',
-        command: ({ editor, range }) => {
-          // Remove the "/" trigger
-          editor.chain().focus().deleteRange(range).run()
-
-          const { state } = editor
-          const { $from } = state.selection
-
-          // Get entire paragraph node
-          const paragraphNode = $from.parent
-
-          if (paragraphNode && paragraphNode.type.name === 'paragraph') {
-            const text = paragraphNode.textContent.trim()
-
-            if (text.length > 0) {
-              // Get exact paragraph position
-              const from = $from.before()
-              const to = $from.after()
-
-              // Delete full paragraph
-              editor.chain()
-                .focus()
-                .deleteRange({ from, to })
-                .run()
-
-              // Open Inline AI with captured text
-              openInlineAI(text)
-
-              return
+        title: 'Media',
+        items: [
+          {
+            title: 'Image',
+            icon: '🖼️',
+            action: async (editor) => {
+              const url = await Modal.open('Insert Image URL');
+              if (url) editor.chain().focus().setImage({ src: url }).run();
+            }
+          },
+          {
+            title: 'YouTube',
+            icon: '▶️',
+            action: async (editor) => {
+              const url = await Modal.open('Insert YouTube URL');
+              if (url) editor.chain().focus().setYoutubeVideo({ src: url }).run();
             }
           }
-
-          // If empty paragraph → just open AI
-          openInlineAI()
-        }
+        ]
+      },
+      {
+        title: 'Blocks',
+        items: [
+          { title: 'Table', icon: '▦', action: editor => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+          { title: 'Code Block', icon: '{ }', action: editor => editor.chain().focus().toggleCodeBlock().run() },
+          { title: 'Math Block', icon: '∑</', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock' }).run() },
+          { title: 'Callout', icon: '💡', action: editor => editor.chain().focus().insertContent({ type: 'callout', content: [{ type: 'paragraph' }] }).run() },
+          { title: 'Page Break', icon: '✂️', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
+        ]
+      },
+      {
+        title: 'Utilities',
+        items: [
+          { title: 'Date', icon: '📅', action: editor => editor.chain().focus().insertContent({ type: 'datetime', attrs: { value: new Date().toISOString(), format: 'date' } }).run() },
+          { title: 'Task List', icon: '☑️', action: editor => editor.chain().focus().toggleTaskList().run() },
+          { title: 'Divider', icon: '—', action: editor => editor.chain().focus().setHorizontalRule().run() },
+        ]
       }
-
-    ]
-
-    /* -------------------- GLOBAL SHORTCUTS -------------------- */
-    document.addEventListener('keydown', e => {
-      // Ctrl+G or Cmd+G to open Inline AI
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        openInlineAI()
-      }
-    })
+    ];
 
     const SlashCommand = Extension.create({
-      name: 'slash-command',
-
+      name: 'slashCommand',
       addProseMirrorPlugins() {
         return [
           Suggestion({
             editor: this.editor,
             char: '/',
+            startOfLine: true,
             items: ({ query }) => {
-              return slashItems.filter(item =>
-                item.title.toLowerCase().includes(query.toLowerCase())
-              )
-            },
-            command: ({ editor, range, props }) => {
-              props.command({ editor, range })
+              return slashGroups.map(group => ({
+                title: group.title,
+                items: group.items.filter(item => item.title.toLowerCase().includes(query.toLowerCase()))
+              })).filter(group => group.items.length > 0);
             },
             render: () => {
-              let popup
-              let selectedIndex = 0
-              let suggestionProps
+              let popup;
+              let selectedIndex = 0;
+              let suggestionProps;
+              let domNodes = []; // Store references to item elements
 
-              const renderPopup = () => {
-                if (!popup) return
-                popup.innerHTML = ''
+              const renderList = () => {
+                if (!popup) return;
+                popup.innerHTML = '';
+                domNodes = [];
 
                 if (suggestionProps.items.length === 0) {
-                  popup.classList.add('hidden')
-                  return
+                  popup.style.display = 'none';
+                  return;
                 }
-                popup.classList.remove('hidden')
+                popup.style.display = 'block';
 
-                suggestionProps.items.forEach((item, index) => {
-                  const el = document.createElement('div')
-                  el.className = `px-3 py-2 cursor-pointer rounded transition-colors ${index === selectedIndex ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100 text-slate-700'
-                    }`
+                suggestionProps.items.forEach(group => {
+                  const groupTitle = document.createElement('div');
+                  groupTitle.className = 'slash-group-title';
+                  groupTitle.textContent = group.title;
+                  popup.appendChild(groupTitle);
 
-                  const content = document.createElement('div')
-                  content.className = 'flex items-center gap-2'
+                  group.items.forEach(item => {
+                    const el = document.createElement('div');
+                    el.className = 'slash-item';
+                    el.innerHTML = `<div class="slash-item-icon">${item.icon}</div>${item.title}`;
 
-                  // Add icon based on command title (simplified mapping)
-                  let icon = '⚡'
-                  if (item.title === 'Heading 1') icon = 'H1'
-                  if (item.title === 'Heading 2') icon = 'H2'
-                  if (item.title === 'Paragraph') icon = '¶'
-                  if (item.title === 'Callout') icon = '💡'
-                  if (item.title === 'MCQ') icon = '?'
-                  if (item.title === 'Ask AI') icon = '✨'
+                    el.addEventListener('mousedown', (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      execute(item);
+                    });
 
-                  content.innerHTML = `<span class="w-5 text-center text-xs font-bold opacity-70">${icon}</span> <span class="text-sm font-medium">${item.title}</span>`
+                    popup.appendChild(el);
+                    domNodes.push({ el, item });
+                  });
+                });
+              };
 
-                  el.appendChild(content)
-                  el.onclick = () => item.command(suggestionProps)
-                  popup.appendChild(el)
-                })
-              }
+              const updateSelection = (scroll = false) => {
+                domNodes.forEach(({ el }, index) => {
+                  if (index === selectedIndex) {
+                    el.classList.add('is-selected');
+                    if (scroll) {
+                      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    }
+                  } else {
+                    el.classList.remove('is-selected');
+                  }
+                });
+              };
+
+              const execute = (item) => {
+                if (suggestionProps) {
+                  const { editor, range } = suggestionProps;
+                  editor.chain().focus().deleteRange(range).run();
+                  item.action(editor);
+                }
+              };
+
+              const updatePosition = () => {
+                const rect = suggestionProps.clientRect();
+                if (rect) {
+                  popup.style.position = 'absolute';
+                  popup.style.top = (rect.bottom + window.scrollY + 10) + 'px';
+                  popup.style.left = rect.left + 'px';
+                }
+              };
 
               return {
                 onStart: props => {
-                  suggestionProps = props
-                  selectedIndex = 0
-                  popup = document.createElement('div')
-                  popup.className = 'slash-popup bg-white shadow-xl border border-slate-200 rounded-xl p-1.5 z-[200] flex flex-col min-w-[200px] overflow-hidden'
-
-                  renderPopup()
-
-                  document.body.appendChild(popup)
-
-                  const rect = props.clientRect()
-                  popup.style.position = 'absolute'
-                  popup.style.top = (rect.bottom + 10) + 'px'
-                  popup.style.left = rect.left + 'px'
+                  suggestionProps = props;
+                  popup = document.createElement('div');
+                  popup.className = 'slash-popup';
+                  document.body.appendChild(popup);
+                  selectedIndex = 0;
+                  renderList();
+                  updateSelection(false); // No scroll on start
+                  updatePosition();
                 },
-
                 onUpdate(props) {
-                  suggestionProps = props
-                  selectedIndex = 0
-
-                  if (!popup) return
-
-                  renderPopup()
-
-                  const rect = props.clientRect()
-                  popup.style.top = (rect.bottom + 10) + 'px'
-                  popup.style.left = rect.left + 'px'
+                  suggestionProps = props;
+                  selectedIndex = 0;
+                  renderList();
+                  updateSelection(false); // No scroll on update
+                  updatePosition();
                 },
-
                 onKeyDown(props) {
                   if (props.event.key === 'ArrowUp') {
-                    selectedIndex = (selectedIndex + suggestionProps.items.length - 1) % suggestionProps.items.length
-                    renderPopup()
-                    return true
+                    selectedIndex = (selectedIndex + domNodes.length - 1) % domNodes.length;
+                    updateSelection(true); // Scroll on key nav
+                    return true;
                   }
                   if (props.event.key === 'ArrowDown') {
-                    selectedIndex = (selectedIndex + 1) % suggestionProps.items.length
-                    renderPopup()
-                    return true
+                    selectedIndex = (selectedIndex + 1) % domNodes.length;
+                    updateSelection(true); // Scroll on key nav
+                    return true;
                   }
                   if (props.event.key === 'Enter') {
-                    const item = suggestionProps.items[selectedIndex]
-                    if (item) {
-                      item.command(suggestionProps)
+                    if (domNodes[selectedIndex]) {
+                      execute(domNodes[selectedIndex].item);
                     }
-                    return true
+                    return true;
                   }
-                  return false
+                  return false;
                 },
-
                 onExit() {
-                  if (popup) popup.remove()
-                  popup = null
+                  if (popup) popup.remove();
+                  popup = null;
+                  domNodes = [];
                 }
-              }
+              };
             }
           })
-        ]
+        ];
       }
-    })
+    });
 
-    /* -------------------- SAFE STORAGE LOAD -------------------- */
-
-    let initialContent = null
-
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        initialContent = JSON.parse(saved)
-      }
-    } catch (e) {
-      console.warn('Corrupted storage, resetting...')
-      localStorage.removeItem(STORAGE_KEY)
-    }
-
-    /* -------------------- EDITOR -------------------- */
-
+    /* --- Editor Initialization --- */
     const editor = new Editor({
       element: document.querySelector('#editor'),
       extensions: [
-        StarterKit,
+        StarterKit.configure({
+          codeBlock: false, // Disabling default CodeBlock to use Lowlight
+          heading: { levels: [1, 2, 3] },
+          dropcursor: { color: '#3b82f6', width: 2 }
+        }),
+        Placeholder.configure({
+          placeholder: 'Type / for commands...',
+        }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Link.configure({ openOnClick: false }),
-        HorizontalRule,
+        Image,
+        Youtube.configure({ controls: false }),
+        Table.configure({ resizable: true }),
+        TableRow, TableHeader, TableCell,
+        // Replace CodeBlockLowlight with CustomCodeBlock
+        CustomCodeBlock.configure({
+          lowlight,
+          defaultLanguage: 'javascript',
+        }),
+        MathBlock,
         Callout,
-        MCQ,
+        PageBreak,
+        DateTime,
         SlashCommand,
-      ],
-      content: initialContent || {
-        type: 'doc',
-        content: [
-          {
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'Type / or paste Markdown...' }
-            ]
-          }
-        ]
-      },
-      autofocus: 'end',
-      onUpdate: ({ editor }) => {
-        const json = editor.getJSON()
-
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(json))
-
-        document.getElementById('jsonPreview').textContent =
-          JSON.stringify(json, null, 2)
-
-        document.getElementById('markdownPreview').textContent =
-          generateMarkdown(json) || '/* No content */'
-      },
-    })
-
-    /* -------------------- INITIAL DEBUG RENDER -------------------- */
-
-    document.getElementById('jsonPreview').textContent =
-      JSON.stringify(editor.getJSON(), null, 2)
-
-    document.getElementById('markdownPreview').textContent =
-      generateMarkdown(editor.getJSON()) || '/* No content */'
-
-    editor.registerPlugin(
-      new Plugin({
-        props: {
-          handlePaste(view, event) {
-            const text = event.clipboardData?.getData('text/plain')
-            if (!text) return false
-
-            event.preventDefault()
-
-            const json = markdownToJSON(text)
-            editor.chain().focus().insertContent(json.content).run()
-
-
-            return true
-          }
-        }
-      })
-    )
-
-
-
-    /* -------------------- AI INSERT -------------------- */
-
-    async function insertAI(markdown) {
-      const clean = normalizeMarkdown(markdown)
-      const json = markdownToJSON(clean)
-      editor.chain().focus().insertContent(json.content).run()
-    }
-
-
-
-    /* -------------------- INLINE AI LOGIC -------------------- */
-    const inlineAIBar = document.getElementById('inlineAIBar')
-    const inlineAIPrompt = document.getElementById('inlineAIPrompt')
-    const inlineAIGenerate = document.getElementById('inlineAIGenerate')
-
-    function openInlineAI(prefill = '') {
-      // If already open, just focus
-      if (!inlineAIBar.classList.contains('hidden') && !prefill) {
-        inlineAIPrompt.focus()
-        return
-      }
-
-      const { selection } = editor.state
-      const { from, to, empty } = selection
-      const coords = editor.view.coordsAtPos(from)
-
-      if (prefill) {
-        inlineAIPrompt.value = prefill
-      } else if (!empty) {
-        inlineAIPrompt.value = editor.state.doc.textBetween(from, to, ' ')
-      }
-
-      inlineAIBar.classList.remove('hidden')
-      inlineAIBar.style.position = 'absolute'
-      const barHeight = inlineAIBar.offsetHeight || 44
-      const spaceBelow = window.innerHeight - coords.bottom
-
-      const top = coords.top + window.scrollY
-      const bottom = coords.bottom + window.scrollY
-      const left = coords.left + window.scrollX
-
-      if (spaceBelow < barHeight + 20) {
-        inlineAIBar.style.top = `${top - barHeight - 12}px`
-        inlineAIBar.style.transformOrigin = 'bottom left'
-      } else {
-        inlineAIBar.style.top = `${bottom + 12}px`
-        inlineAIBar.style.transformOrigin = 'top left'
-      }
-
-      const leftPos = Math.max(20, Math.min(left - 20, document.body.scrollWidth - 420))
-      inlineAIBar.style.left = `${leftPos}px`
-      inlineAIPrompt.focus()
-
-      if (inlineAIPrompt.value) inlineAIPrompt.select()
-    }
-
-    function closeInlineAI() {
-      inlineAIBar.classList.add('hidden')
-      inlineAIPrompt.value = ''
-      editor.chain().focus().run()
-    }
-
-    // Close on Escape or Click Outside
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !inlineAIBar.classList.contains('hidden')) {
-        closeInlineAI()
-      }
-    })
-
-    document.addEventListener('click', (e) => {
-      if (!inlineAIBar.classList.contains('hidden') &&
-        !inlineAIBar.contains(e.target) &&
-        !e.target.closest('.slash-popup')) { // Don't close if clicking slash menu
-        closeInlineAI()
-      }
-    })
-
-    async function callGeminiAI(prompt) {
-      /* -------------------- API CALL -------------------- */
-
-
-      const systemPrompt = `
-You are a professional writing assistant.
-
-STRICT OUTPUT RULES (VERY IMPORTANT):
-
-1. Output ONLY raw Markdown.
-2. Never use HTML.
-3. Never use blockquotes (>).
-4. Never wrap callouts or MCQs inside bullet lists.
-5. Callouts must be standalone lines starting EXACTLY with:
-   ! Your callout text
-6. MCQ must follow this EXACT structure:
-
-? Question text
-( ) Option 1
-( ) Option 2
-(x) Correct option
-( ) Option 4
-
-7. Do NOT prefix callouts or MCQ lines with '*' or '-'.
-8. Do NOT indent MCQ or callout lines.
-9. Use '-' for bullet lists.
-10. Use [ ] for task lists.
-11. Use # for headings.
-12. Use --- for horizontal divider.
-
-IMPORTANT:
-Callouts and MCQs must NOT be inside bullet lists.
-They must be standalone blocks.
-`
-
-
-      try {
-        const response = await fetch(GEMINI_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: systemPrompt + "\n\nUser Prompt:\n" + prompt }
-                ]
-              }
-            ]
-          })
+        BubbleMenu.configure({
+          element: document.querySelector('#table-bubble-menu'),
+          shouldShow: ({ editor }) => editor.isActive('table')
         })
-
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.error?.message || 'AI Error')
-        }
-
-        const result =
-          data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-
-
-
-        return result.trim()
-
-      } catch (err) {
-        console.error(err)
-        return `! AI Error: ${err.message}`
+      ],
+      content: `
+          <h1>Premium Editor</h1>
+          <p>This is a polished TipTap editor with <strong>Code highlighting</strong>, <strong>Math</strong> support, and better UI.</p>
+          <pre><code class="language-javascript">console.log('Hello World');</code></pre>
+          <div data-type="callout" class="callout callout-info"><span class="callout-icon">💡</span><div class="callout-content"><p>Try typing <code>/</code> to see the grouped menu.</p></div></div>
+        `,
+      editorProps: {
+        attributes: {
+          class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl focus:outline-none',
+        },
+      },
+      onUpdate({ editor }) {
+        document.getElementById('debug-json').textContent = JSON.stringify(editor.getJSON(), null, 2);
       }
+    });
+
+    // Initial Render
+    document.getElementById('debug-json').textContent = JSON.stringify(editor.getJSON(), null, 2);
+
+    // Populate Table Bubble Menu
+    const tableMenuContainer = document.querySelector('#table-bubble-menu');
+    if (tableMenuContainer) tableMenuContainer.className = 'bubble-menu hidden';
+
+    // Helper to create buttons
+    const createBtn = (icon, action, title, isDestructive = false) => {
+      const btn = document.createElement('button');
+      btn.className = `bubble-btn ${isDestructive ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : ''}`;
+      btn.innerHTML = icon;
+      btn.title = title;
+      btn.onclick = () => editor.chain().focus()[action]().run();
+      return btn;
+    };
+
+    if (tableMenuContainer) {
+      tableMenuContainer.append(
+        createBtn('←', 'addColumnBefore', 'Add Col Before'),
+        createBtn('→', 'addColumnAfter', 'Add Col After'),
+        createBtn('↑', 'addRowBefore', 'Add Row Before'),
+        createBtn('↓', 'addRowAfter', 'Add Row After'),
+        createBtn('🗑️', 'deleteTable', 'Delete Table', true)
+      );
     }
-
-
-
-    inlineAIPrompt.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        inlineAIGenerate.click()
-      }
-    })
-
-    inlineAIGenerate.onclick = async () => {
-      const prompt = inlineAIPrompt.value.trim()
-      if (!prompt) return
-
-      inlineAIGenerate.disabled = true
-      inlineAIGenerate.textContent = 'Generating...'
-
-      const markdown = await callGeminiAI(prompt)
-
-      insertAI(markdown)
-
-
-
-      inlineAIGenerate.disabled = false
-      inlineAIGenerate.textContent = 'Generate'
-
-      closeInlineAI()
-    }
-
-    function normalizeMarkdown(text) {
-      // 1️⃣ Remove trailing spaces
-      text = text.replace(/[ \t]+$/gm, '')
-
-      // 2️⃣ Remove blank line before bullet lists
-      text = text.replace(/\n\n(-\s)/g, '\n$1')
-
-      // 3️⃣ Fix multiple blank lines inside lists
-      text = text.replace(/(- .+)\n\n(- )/g, '$1\n$2')
-
-      // 4️⃣ Prevent bullets from becoming code blocks
-      text = text.replace(/^\s{4,}(- )/gm, '$1')
-
-      // 5️⃣ Normalize MCQ options
-      text = text.replace(/^\s*\*\s*\(( |x|X)\)/gm, '($1)')
-      text = text.replace(/^\s*-\s*\(( |x|X)\)/gm, '($1)')
-
-      // 6️⃣ Remove accidental bullet before callout
-      text = text.replace(/^\s*[-*]\s*! /gm, '! ')
-
-      // 7️⃣ Remove accidental bullet before MCQ question
-      text = text.replace(/^\s*[-*]\s*\? /gm, '? ')
-
-      return text
-    }
-
-
-
-    function generateMarkdown(node) {
-      if (!node) return ''
-
-      switch (node.type) {
-        case 'doc':
-          return node.content?.map(generateMarkdown).join('\n') || ''
-
-        case 'paragraph':
-          return node.content?.map(generateMarkdown).join('') + '\n'
-
-        case 'text':
-          return node.text || ''
-
-        case 'heading':
-          const level = node.attrs.level || 1
-          return `${'#'.repeat(level)} ${node.content?.map(generateMarkdown).join('')}\n`
-
-        case 'bulletList':
-          return node.content?.map(child => `- ${generateMarkdown(child).trim()}\n`).join('') || ''
-
-        case 'orderedList':
-          return node.content?.map((child, index) => {
-            // For ordered list, we need to pass the index or handle it
-            // Simple version: 1. Item
-            return `${index + 1}. ${generateMarkdown(child).trim()}\n`
-          }).join('') || ''
-
-        case 'listItem':
-
-
-          return node.content?.map(generateMarkdown).join('')
-
-        case 'callout':
-          return node.content
-            ?.map(child => `! ${generateMarkdown(child).trim()}`)
-            .join('\n') + '\n'
-
-        case 'mcq':
-          const question = node.content?.[0]
-          const options = node.content?.slice(1) || []
-
-          let result = `? ${generateMarkdown(question).trim()}\n`
-
-          options.forEach((opt, index) => {
-            const marker =
-              node.attrs.correctIndex == index + 1 ? '(x)' : '( )'
-            result += `${marker} ${generateMarkdown(opt).trim()}\n`
-          })
-
-          return result.trim() + '\n'
-
-        case 'taskList':
-          return node.content?.map(generateMarkdown).join('') || ''
-
-        case 'taskItem':
-          const check = node.attrs.checked ? '[x]' : '[ ]'
-          return `${check} ${node.content?.map(generateMarkdown).join('').trim()}\n`
-
-        case 'horizontalRule':
-          return '---\n'
-
-        default:
-          return node.content?.map(generateMarkdown).join('') || ''
-      }
-    }
-
-
 
   </script>
-
-
 </body>
 
 </html>
