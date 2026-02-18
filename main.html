@@ -2343,6 +2343,26 @@
                     editorView.dragging = { slice, move: true };
                   });
 
+                  // Auto Scroll during Drag
+                  handle.addEventListener('drag', (e) => {
+                    // Filter out invalid 0 coordinates often sent on dragend
+                    if (e.clientY === 0 && e.clientX === 0) return;
+
+                    const y = e.clientY;
+                    const h = window.innerHeight;
+
+                    // Scroll faster as you get closer to edge
+                    if (y < 50) {
+                      window.scrollBy(0, -15);
+                    } else if (y < 100) {
+                      window.scrollBy(0, -5);
+                    } else if (y > h - 50) {
+                      window.scrollBy(0, 15);
+                    } else if (y > h - 100) {
+                      window.scrollBy(0, 5);
+                    }
+                  });
+
                   document.addEventListener('mousemove', onMouseMove);
 
                   return {
