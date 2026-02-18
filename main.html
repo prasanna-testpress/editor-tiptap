@@ -98,31 +98,42 @@
       cursor: pointer;
     }
 
-    /* Drag Handle */
-    .ProseMirror>* {
-      position: relative;
-    }
-
-    .ProseMirror>*:hover::before {
-      content: "⋮⋮";
+    .global-drag-handle {
       position: absolute;
-      left: -35px;
-      top: 0;
-      color: #cbd5e1;
-      font-size: 16px;
-      cursor: grab;
       width: 24px;
       height: 24px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 4px;
-      transition: all 0.2s;
+      cursor: grab;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      opacity: 0;
+      pointer-events: none;
     }
 
-    .ProseMirror>*:hover::before:hover {
-      background: #f1f5f9;
-      color: var(--plate-accent);
+    .global-drag-handle.visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(-4px);
+    }
+
+    .global-drag-handle::after {
+      content: "⋮⋮";
+      font-size: 14px;
+      color: #94a3b8;
+    }
+
+    .global-drag-handle:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+    }
+
+    .global-drag-handle:active {
+      cursor: grabbing;
     }
 
     /* Lists */
@@ -892,7 +903,13 @@
     import katex from 'https://esm.sh/katex';
     import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.11.5?bundle';
     import { Markdown } from 'https://esm.sh/tiptap-markdown@0.8.10?bundle';
-    import { Plugin } from 'https://esm.sh/prosemirror-state?bundle';
+    import { Plugin, PluginKey, NodeSelection, TextSelection } from 'https://esm.sh/prosemirror-state?bundle';
+    // serializeForClipboard is not exported by default in some bundles. 
+    // We can use a simpler approach for the drag handle: just selecting the node is often enough for Tiptap/ProseMirror to handle the drag if we let the event bubble?
+    // Actually, we need to manually set the drag data if we initiate it from an external element.
+    // But since we can't easily get serializeForClipboard, let's try a different strategy:
+    // Select the node, and rely on standard behavior if possible, or construct basic HTML.
+    import { DOMSerializer } from 'https://esm.sh/prosemirror-model?bundle';
 
     /* --- Constants --- */
     const GEMINI_API_KEY = ''; // Replace with actual key or env var if possible
@@ -2182,19 +2199,177 @@
         Video,
         FileAttachment,
         SlashCommand,
+        // Custom Vanilla Drag Handle
+        Extension.create({
+          name: 'premiumDragHandle',
+
+          addProseMirrorPlugins() {
+            return [
+              new Plugin({
+                key: new PluginKey('premiumDragHandle'),
+                view(editorView) {
+                  const handle = document.createElement('div');
+                  handle.className = 'global-drag-handle';
+                  handle.draggable = true;
+                  document.body.appendChild(handle);
+
+                  let currentBlock = null;
+                  let frameId = null;
+
+                  const hide = () => {
+                    handle.classList.remove('visible');
+                    currentBlock = null;
+                  };
+
+                  const updatePosition = (dom) => {
+                    const rect = dom.getBoundingClientRect();
+                    handle.style.top =
+                      rect.top + window.scrollY + rect.height / 2 - 12 + 'px';
+                    handle.style.left =
+                      rect.left - 32 + 'px';
+                    handle.classList.add('visible');
+                  };
+
+                  const onMouseMove = (e) => {
+                    if (frameId) cancelAnimationFrame(frameId);
+                    frameId = requestAnimationFrame(() => {
+                      if (e.target === handle || handle.contains(e.target)) return;
+
+                      const coords = { left: e.clientX, top: e.clientY };
+                      const pos = editorView.posAtCoords(coords);
+
+                      if (!pos) return hide();
+
+                      let targetNode = null;
+                      let targetPos = null;
+                      let targetDom = null;
+
+                      // 1. Check for Atom Block (MCQ, Image, etc.) directly at position
+                      // pos.pos often points directly before the atom node if we hover it
+                      const directNode = editorView.state.doc.nodeAt(pos.pos);
+                      if (directNode && directNode.isBlock && directNode.isAtom) {
+                        targetNode = directNode;
+                        targetPos = pos.pos;
+                        targetDom = editorView.nodeDOM(targetPos);
+                      }
+
+                      // 2. If no atom found, traverse up from the resolved position
+                      if (!targetNode) {
+                        const $pos = editorView.state.doc.resolve(pos.pos);
+                        for (let depth = $pos.depth; depth > 0; depth--) {
+                          const node = $pos.node(depth);
+                          // We are looking for the "best" block to drag.
+                          // If it's a block and not doc
+                          if (node.isBlock && node.type.name !== 'doc') {
+
+                            // Priority Logic:
+                            // If the parent is a "List Item" or "Callout", we likely want to drag that instead of the paragraph inside.
+                            const parent = $pos.node(depth - 1);
+                            if (parent && (parent.type.name === 'callout' || parent.type.name === 'listItem' || parent.type.name === 'mcq')) {
+                              // Skip this node, let the loop find the parent in next iteration
+                              continue;
+                            }
+
+                            targetNode = node;
+                            targetPos = $pos.before(depth);
+                            targetDom = editorView.nodeDOM(targetPos);
+                            break;
+                          }
+                        }
+                      }
+
+                      if (targetNode && targetDom && targetDom.nodeType === 1) {
+                        const rect = targetDom.getBoundingClientRect();
+
+                        // Show if near left side (-50px to +100px of left start)
+                        // Relaxed constraints to ensure it pops up easier
+                        if (e.clientX < rect.left - 50 || e.clientX > rect.left + rect.width) {
+                          // Too far away
+                        } else {
+                          currentBlock = { pos: targetPos, dom: targetDom };
+                          updatePosition(targetDom);
+                          return;
+                        }
+                      }
+
+                      // Safe zone check (keep visible if moving towards handle)
+                      if (currentBlock) {
+                        const rect = currentBlock.dom.getBoundingClientRect();
+                        const handleRect = handle.getBoundingClientRect();
+
+                        if (e.clientY >= rect.top - 20 && e.clientY <= rect.bottom + 20 &&
+                          e.clientX >= handleRect.left - 20 && e.clientX <= rect.left + 50) {
+                          return;
+                        }
+                      }
+
+                      hide();
+                    });
+                  };
+
+                  // Drag Start
+                  handle.addEventListener('dragstart', (e) => {
+                    if (!currentBlock || !currentBlock.dom) {
+                      e.preventDefault();
+                      return;
+                    }
+
+                    const { pos, dom } = currentBlock;
+
+                    // Safe check if pos is valid
+                    try {
+                      const tr = editorView.state.tr.setSelection(
+                        NodeSelection.create(editorView.state.doc, pos)
+                      );
+                      editorView.dispatch(tr);
+                    } catch (err) {
+                      e.preventDefault();
+                      return;
+                    }
+
+                    const slice = editorView.state.selection.content();
+                    const serializer = DOMSerializer.fromSchema(editorView.state.schema);
+                    const fragment = serializer.serializeFragment(slice.content);
+
+                    const wrapper = document.createElement('div');
+                    wrapper.appendChild(fragment);
+
+                    if (e.dataTransfer) {
+                      e.dataTransfer.setData('text/html', wrapper.innerHTML);
+                      e.dataTransfer.setData('text/plain', wrapper.innerText || wrapper.textContent || '');
+                      e.dataTransfer.effectAllowed = 'copyMove';
+                      e.dataTransfer.setDragImage(dom, 0, 0);
+                    }
+                    editorView.dragging = { slice, move: true };
+                  });
+
+                  document.addEventListener('mousemove', onMouseMove);
+
+                  return {
+                    destroy() {
+                      handle.remove();
+                      document.removeEventListener('mousemove', onMouseMove);
+                    }
+                  };
+                }
+              })
+            ];
+          }
+        }),
+
         BubbleMenu.configure({
-          pluginKey: 'tableBubbleMenu',
+          pluginKey: 'tableBubbleMenu', // Using string key is safer for Tiptap configure unless using exact object ref
           element: document.querySelector('#table-bubble-menu'),
           shouldShow: ({ editor }) => editor.isActive('table')
         }),
+
         BubbleMenu.configure({
           pluginKey: 'aiBubbleMenu',
           element: document.querySelector('#ai-bubble-menu'),
-          shouldShow: ({ editor, from, to }) => {
-            // Show only when text is selected and NOT in a table (optional constraint)
-            return !editor.state.selection.empty && !editor.isActive('table');
-          }
+          shouldShow: ({ editor, from, to }) =>
+            !editor.state.selection.empty && !editor.isActive('table')
         })
+
       ],
       content: initialContent,
       editorProps: {
