@@ -791,6 +791,30 @@
     <!-- Buttons injected by JS -->
   </div>
 
+  <!-- AI Bubble Menu -->
+  <div id="ai-bubble-menu"
+    class="hidden flex items-center gap-1 bg-white border border-slate-200 rounded-lg shadow-lg p-1">
+    <button data-action="improve"
+      class="ai-btn flex items-center gap-2 px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 rounded">
+      <span>✨</span> Improve
+    </button>
+    <button data-action="summarize"
+      class="ai-btn flex items-center gap-2 px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 rounded">
+      <span>📝</span> Summarize
+    </button>
+    <button data-action="explain"
+      class="ai-btn flex items-center gap-2 px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 rounded">
+      <span>🤔</span> Explain
+    </button>
+    <button data-action="continue"
+      class="ai-btn flex items-center gap-2 px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 rounded">
+      <span>➡️</span> Continue
+    </button>
+    <div id="ai-loader" class="hidden ml-2">
+      <div class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+    </div>
+  </div>
+
   <!-- Universal Modal -->
   <div id="ui-modal" class="modal-overlay">
     <div class="modal-card">
@@ -848,6 +872,11 @@
     import katex from 'https://esm.sh/katex';
     import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.11.5?bundle';
     import { Plugin } from 'https://esm.sh/prosemirror-state?bundle';
+
+    /* --- Constants --- */
+    const GEMINI_API_KEY = ''; // Replace with actual key or env var if possible
+    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
 
     // Initialize Lowlight (Syntax Highlighting)
     const lowlight = createLowlight(common);
@@ -1688,6 +1717,15 @@
         ]
       },
       {
+        title: 'AI Actions',
+        items: [
+          { title: 'Improve Writing', icon: '✨', action: editor => handleAIRequest('improve') },
+          { title: 'Summarize', icon: '📝', action: editor => handleAIRequest('summarize') },
+          { title: 'Explain', icon: '🤔', action: editor => handleAIRequest('explain') },
+          { title: 'Continue Writing', icon: '➡️', action: editor => handleAIRequest('continue') },
+        ]
+      },
+      {
         title: 'Blocks',
         items: [
           { title: 'Mcq', description: 'Insert an MCQ block', icon: '📝', action: editor => editor.chain().focus().insertContent({ type: 'mcq' }).run() },
@@ -1897,8 +1935,17 @@
         FileAttachment,
         SlashCommand,
         BubbleMenu.configure({
+          pluginKey: 'tableBubbleMenu',
           element: document.querySelector('#table-bubble-menu'),
           shouldShow: ({ editor }) => editor.isActive('table')
+        }),
+        BubbleMenu.configure({
+          pluginKey: 'aiBubbleMenu',
+          element: document.querySelector('#ai-bubble-menu'),
+          shouldShow: ({ editor, from, to }) => {
+            // Show only when text is selected and NOT in a table (optional constraint)
+            return !editor.state.selection.empty && !editor.isActive('table');
+          }
         })
       ],
       content: `
@@ -1943,6 +1990,126 @@
         createBtn('🗑️', 'deleteTable', 'Delete Table', true)
       );
     }
+
+    /* --- AI Integration --- */
+    const aiMenu = document.getElementById('ai-bubble-menu');
+    const aiLoader = document.getElementById('ai-loader');
+    const aiBtns = document.querySelectorAll('.ai-btn');
+
+    const handleAIRequest = async (action) => {
+      const { state, view } = editor;
+      let { from, to } = state.selection;
+      let selectedText = state.doc.textBetween(from, to, ' ');
+      let range = { from, to };
+
+      // Fallback: If no selection, use the text of the current block or previous block
+      if (!selectedText.trim()) {
+        const resolvedPos = state.doc.resolve(from);
+        const parent = resolvedPos.parent;
+
+        // If inside a text block, use its content
+        if (parent.isTextblock && parent.textContent.trim()) {
+          selectedText = parent.textContent;
+          range = {
+            from: resolvedPos.start(),
+            to: resolvedPos.end()
+          };
+        } else {
+          // Try previous block if current is empty (e.g. typing '/' on new line)
+          // This is tricky, let's just stick to "Text before cursor" for 'continue'
+          if (action === 'continue') {
+            // Get last 1000 chars
+            selectedText = state.doc.textBetween(Math.max(0, from - 1000), from, ' ');
+            range = { from, to }; // Insert at cursor
+          }
+        }
+      }
+
+      if (!selectedText.trim()) {
+        alert('Please select text or place cursor near text to use AI.');
+        return;
+      }
+
+      // Re-query elements to ensure safety
+      // Use global loader for reliability
+      const globalLoader = document.getElementById('loading-overlay');
+      const loaderText = globalLoader?.querySelector('p');
+      const aiLoader = document.getElementById('ai-loader'); // Optional bubble loader
+
+      if (globalLoader) {
+        if (loaderText) loaderText.textContent = 'AI Processing...';
+        globalLoader.classList.add('active');
+      }
+      if (aiLoader) aiLoader.classList.remove('hidden');
+
+      // Disable buttons if they exist
+      const aiBtns = document.querySelectorAll('.ai-btn');
+      aiBtns.forEach(btn => btn.disabled = true);
+
+      let prompt = '';
+      switch (action) {
+        case 'improve': prompt = `Rewrite this text to be more professional, clear, and concise:\n\n"${selectedText}"`; break;
+        case 'summarize': prompt = `Summarize this text in one sentence:\n\n"${selectedText}"`; break;
+        case 'explain': prompt = `Explain this text simply:\n\n"${selectedText}"`; break;
+        case 'continue': prompt = `Continue writing naturally from this text (do not repeat it):\n\n"${selectedText}"`; break;
+      }
+
+      try {
+        const response = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [{ text: prompt }]
+            }]
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+          console.error('Gemini Error:', data.error);
+          alert('AI Error: ' + data.error.message);
+          return;
+        }
+
+        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (aiText) {
+          const chain = editor.chain().focus();
+
+          if (action === 'continue') {
+            chain.insertContentAt(range.to, " " + aiText); // Append
+          } else {
+            // chain.replaceWith is not a Tiptap command. Use deleteRange + insertContent
+            chain.deleteRange(range).insertContentAt(range.from, aiText);
+          }
+
+          chain.run();
+        }
+
+      } catch (error) {
+        console.error('Network Error:', error);
+        alert('Failed to connect to AI service.');
+      } finally {
+        // Reset UI
+        if (globalLoader) {
+          globalLoader.classList.remove('active');
+          if (loaderText) loaderText.textContent = 'Uploading...'; // Reset default text
+        }
+        if (aiLoader) aiLoader.classList.add('hidden');
+        aiBtns.forEach(btn => btn.disabled = false);
+      }
+    };
+
+    // Attach Listeners
+    aiBtns.forEach(btn => {
+      btn.onclick = (e) => {
+        e.preventDefault(); // Prevent losing focus
+        handleAIRequest(btn.dataset.action);
+      };
+    });
 
   </script>
 </body>
