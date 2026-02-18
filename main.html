@@ -895,7 +895,7 @@
     import { Plugin } from 'https://esm.sh/prosemirror-state?bundle';
 
     /* --- Constants --- */
-    const GEMINI_API_KEY = 'AIzaSyAUYSYUpEOFZS4V8SmA9_ZlTwSAi4XFW2E'; // Replace with actual key or env var if possible
+    const GEMINI_API_KEY = ''; // Replace with actual key or env var if possible
     const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 
@@ -1157,23 +1157,44 @@
 
       addAttributes() {
         return {
-          text: { default: 'E = mc^2' }
+          text: {
+            default: 'E = mc^2',
+            parseHTML: element => element.getAttribute('data-text'),
+            renderHTML: attributes => ({ 'data-text': attributes.text }),
+          }
         }
       },
 
       parseHTML() {
-        return [{ tag: 'div[data-type="math-block"]' }]
+        return [{
+          tag: 'div[data-type="math-block"]',
+          getAttrs: dom => ({ text: dom.getAttribute('data-text') })
+        }]
       },
 
       renderHTML({ HTMLAttributes }) {
         return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'math-block' })]
       },
 
+      addStorage() {
+        return {
+          markdown: {
+            serialize: (state, node) => {
+              state.write(`$$\n${node.attrs.text}\n$$`);
+              state.closeBlock(node);
+            }
+          }
+        }
+      },
+
       addInputRules() {
         return [
           new InputRule({
             find: /^\$\$\s$/,
-            type: this.type,
+            handler: ({ state, range }) => {
+              const { tr } = state;
+              tr.replaceWith(range.from, range.to, this.type.create());
+            }
           }),
         ]
       },
@@ -1925,7 +1946,14 @@
         ListItem,
         HardBreak,
         HorizontalRule,
-        Markdown,
+        Markdown.configure({
+          html: false,
+          tightLists: true,
+          bulletListMarker: '-',
+          linkify: true,
+          transformPastedText: true,
+          transformCopiedText: true,
+        }),
         Heading.configure({ levels: [1, 2, 3] }),
         Bold,
         Code,
@@ -2067,100 +2095,261 @@
       }
     };
 
-    // 2. Prompt Builder
-    const buildPrompt = (action, selection, fullDoc, param = '') => {
-      const baseSystem = `You are an AI writing assistant for a structured educational rich text editor.
-Your output will be parsed into editor blocks automatically.
-You MUST follow the editor grammar strictly.
+    // --- Custom Block Converter ---
+    const convertCustomBlocks = () => {
+      const { state, view } = editor;
+      const { doc } = state;
+      let tr = state.tr;
+      let modified = false;
 
-========================================
-EDITOR MARKDOWN GRAMMAR (MANDATORY)
-========================================
+      doc.descendants((node, pos) => {
+        if (!node.isTextblock || node.type.name !== 'paragraph') return;
+        const text = node.textContent;
 
-HEADINGS:
-- # Main Title
-- ## Section
-- ### Subsection
-Do not skip heading levels.
-Do not use #### or deeper.
+        // 1. Math Block: $$ ... $$
+        // Simple check for full block math
+        if (text.trim().startsWith('$$') && text.trim().endsWith('$$')) {
+          const mathText = text.trim().slice(2, -2).trim();
+          if (mathText) {
+            tr.replaceWith(pos, pos + node.nodeSize,
+              state.schema.nodes.mathBlock.create({ text: mathText })
+            );
+            modified = true;
+            return false; // Don't descend
+          }
+        }
 
-PARAGRAPHS:
-- Short and readable.
-- Maximum 4 lines per paragraph.
-- Never produce one large paragraph.
+        // 2. MCQ: ? Question ... ( ) Option
+        if (text.trim().startsWith('? ')) {
+          // Check if next siblings are options
+          // This is hard in descendants loop due to isolation.
+          // Better strategy: Scan document text for patterns.
+        }
+      });
 
-BULLET LIST:
-- Use "- " only.
-- Do not use "*".
-- Do not mix bullet styles.
+      // Scan for MCQs using text search on the full document
+      // We look for blocks: ? Question \n ( ) Option ...
+      // Since Tiptap Markdown splits them into paragraphs, we look for sequence of paragraphs.
 
-NUMBERED LIST:
-1. Step one
-2. Step two
-Use only for sequences or instructions.
+      // Implementation: Iterate top-level nodes
+      let i = 0;
+      while (i < doc.childCount) {
+        const child = doc.child(i);
+        const pos = doc.resolve(0).posAtIndex(i); // Approximate
+        // Wait, getting absolute pos from index is tricky.
+        // Better to iterate index.
 
-CODE BLOCK:
-Use triple backticks with language:
-\`\`\`python
-code here
-\`\`\`
-Only use code blocks when user asks for example code.
+        if (child.type.name === 'paragraph' && child.textContent.startsWith('? ')) {
+          const question = child.textContent.slice(2).trim();
+          const options = [];
+          let j = i + 1;
+          let deleteCount = 1;
 
-MATH BLOCK:
-Use defined LaTeX style.
+          while (j < doc.childCount) {
+            const nextNode = doc.child(j);
+            const nextText = nextNode.textContent.trim();
+            if (nextNode.type.name === 'paragraph' && /^\(\s*[x\s]?\s*\)/.test(nextText)) {
+              const isCorrect = nextText.match(/^\(\s*x\s*\)/i);
+              const optText = nextText.replace(/^\(\s*[x\s]?\s*\)\s*/, '');
+              options.push({ text: optText, isCorrect: !!isCorrect, id: Math.random().toString(36).slice(2) });
+              deleteCount++;
+              j++;
+            } else {
+              break;
+            }
+          }
 
-INLINE MATH:
-Use single dollar: $a^2 + b^2$
+          if (options.length > 0) {
+            // Found a MCQ cluster! Replace child i to child i+deleteCount-1
+            // Calculate startPos and endPos
+            let startPos = 0;
+            let current = 0;
+            doc.forEach((n, offset) => {
+              if (current === i) startPos = offset;
+              current++;
+            });
 
-GLOBAL RULES:
-- Do NOT say "Here is".
-- Do NOT explain what you are doing.
-- Do NOT add introduction phrases.
-- Do NOT wrap entire response in code block.
-- Do NOT add conversational text.
-- Output only structured educational content.
-`;
-
-      // MCQ Extraction Logic
-      let mcqCount = 5;
-      if (action === 'generate-mcq') {
-        const countMatch = selection.match(/(\d+)\s+mcq/i);
-        if (countMatch) mcqCount = parseInt(countMatch[1]);
+            // Helper to find position
+            // Actually simplest is using range of nodes
+            // We know startPos. We need endPos.
+            // The scan above is abstract. Let's use `posAtIndex`.
+          }
+        }
+        i++;
       }
+      // ... (Simpler Implementation below using range replacement) ...
+    };
+
+    // Robust ConvertCustomBlocks
+    // We rewrite the document by replacing text blocks with Nodes
+    const convertCustomBlocksRobust = () => {
+      const updates = [];
+
+      // 1. Math Block & Single-Node MCQ Detection
+      editor.state.doc.forEach((node, offset) => {
+        if (node.type.name === 'paragraph') {
+          const text = node.textContent.trim();
+
+          // Math Block
+          if (text.startsWith('$$') && text.endsWith('$$') && text.length > 4) {
+            updates.push({
+              from: offset,
+              to: offset + node.nodeSize,
+              type: 'mathBlock',
+              attrs: { text: text.slice(2, -2).trim() }
+            });
+            return;
+          }
+
+          // Single-Paragraph MCQ (e.g. "? Q\n( ) A\n( ) B")
+          const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+          if (lines.length >= 2 && lines[0].startsWith('? ')) {
+            const question = lines[0].slice(2).trim();
+            const options = [];
+
+            // Parse options
+            for (let i = 1; i < lines.length; i++) {
+              if (/^\(\s*[x\s]?\s*\)/.test(lines[i])) {
+                const isCorrect = /^\(\s*x\s*\)/i.test(lines[i]);
+                const optText = lines[i].replace(/^\(\s*[x\s]?\s*\)\s*/, '');
+                options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+              }
+            }
+
+            if (options.length >= 2) {
+              updates.push({
+                from: offset,
+                to: offset + node.nodeSize,
+                type: 'mcq',
+                attrs: { question, options }
+              });
+              return;
+            }
+          }
+        }
+      });
+
+      // 2. Multi-Paragraph MCQ Detection
+      // Scan for sequences of paragraphs: "? Q" -> "( ) A" -> "( ) B"
+      let mcqStart = -1;
+      let questionText = '';
+      let options = [];
+      let nodesToRemove = [];
+
+      editor.state.doc.forEach((node, offset) => {
+        // Skip if already handled
+        if (updates.some(u => u.from === offset)) return;
+
+        if (node.type.name === 'paragraph') {
+          const text = node.textContent.trim();
+
+          // Start of Question
+          if (text.startsWith('? ')) {
+            if (mcqStart !== -1) {
+              // Close previous (was invalid or incomplete)
+              mcqStart = -1;
+              options = [];
+              nodesToRemove = [];
+            }
+            mcqStart = offset;
+            questionText = text.slice(2).trim();
+            nodesToRemove.push({ from: offset, to: offset + node.nodeSize });
+            return;
+          }
+
+          // Option
+          if (mcqStart !== -1 && /^\(\s*[x\s]?\s*\)/.test(text)) {
+            const isCorrect = /^\(\s*x\s*\)/i.test(text);
+            const optText = text.replace(/^\(\s*[x\s]?\s*\)\s*/, '');
+            options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+            nodesToRemove.push({ from: offset, to: offset + node.nodeSize });
+            return;
+          }
+
+          // End of MCQ Cluster
+          if (mcqStart !== -1) {
+            if (options.length > 0) {
+              updates.push({
+                from: nodesToRemove[0].from,
+                to: nodesToRemove[nodesToRemove.length - 1].to,
+                type: 'mcq',
+                attrs: { question: questionText, options: [...options] }
+              });
+            }
+            mcqStart = -1;
+            options = [];
+            nodesToRemove = [];
+          }
+        }
+      });
+
+      // Catch trailing MCQ
+      if (mcqStart !== -1 && options.length > 0) {
+        updates.push({
+          from: nodesToRemove[0].from,
+          to: nodesToRemove[nodesToRemove.length - 1].to,
+          type: 'mcq',
+          attrs: { question: questionText, options: [...options] }
+        });
+      }
+
+      // Apply updates (Bottom-Up order)
+      if (updates.length > 0) {
+        updates.sort((a, b) => b.from - a.from);
+        const transaction = editor.state.tr;
+        updates.forEach(u => {
+          transaction.replaceWith(u.from, u.to, editor.schema.nodes[u.type].create(u.attrs));
+        });
+        editor.view.dispatch(transaction);
+      }
+    };
+
+    // 2. Prompt Builder (PURE MARKDOWN MODE)
+    const buildPrompt = (action, selection, fullDoc, param = '') => {
+      const baseSystem = `You are an AI writing assistant for a structured educational editor.
+You MUST output STRICT MARKDOWN.
+Do NOT use JSON.
+
+FORMATTING RULES:
+- Use standard Markdown for headings (#), lists (-), and bold (**).
+- Math Equations: Use $$ ... $$ for block math (put on new line).
+- Inline Math: Use $ ... $.
+
+INTERACTIVE ELEMENTS:
+To create a Multiple Choice Question (MCQ), use this EXACT text format:
+? Question text here
+( ) Option A
+(x) Correct Option B
+( ) Option C
+
+Rules:
+- The "(x)" marks the correct answer.
+- Leave an empty line before and after the MCQ.
+- **EACH OPTION MUST BE ON A NEW LINE.**
+`;
 
       const context = fullDoc.slice(-3000);
 
-      // MCQ Template
-      if (action === 'generate-mcq') {
-        return `${baseSystem}
-Generate ${mcqCount} multiple choice questions based on this text.
-Return ONLY a JSON Array (no valid markdown, just raw JSON).
-Format:
-[
-  {
-    "question": "...",
-    "options": [
-      { "text": "...", "isCorrect": true },
-      { "text": "...", "isCorrect": false },
-      { "text": "...", "isCorrect": false },
-      { "text": "...", "isCorrect": false }
-    ]
-  }
-]
-Important: Ensure valid JSON. Do not wrap in \`\`\`json blocks.
-Text: "${selection}"`;
-      }
-
-      // Standard Actions
       let prompt = '';
+
+      // Extract quantity
+      const countMatch = selection.match(/(\d+)\s*(?:quiz|mcq|question)/i);
+      const requestedCount = countMatch ? parseInt(countMatch[1]) : 0;
+      const quantityText = requestedCount > 0 ? `GENERATE EXACTLY ${requestedCount} QUESTIONS.` : "Include relevant questions.";
+
+      const mcqInstruction = `\nInclude MCQs using the '? Question' format. ${quantityText}`;
+
       switch (action) {
         case 'improve': prompt = `Rewrite to be professional, educational, and concise:\n"${selection}"`; break;
         case 'summarize': prompt = `Summarize in defined bullet list format:\n"${selection}"`; break;
-        case 'explain': prompt = `Explain this educational concept simply:\n"${selection}"`; break;
-        case 'continue': prompt = `Continue writing educational content naturally (context: "...${context}"):\n\nWrite next paragraphs following grammar rules.`; break;
+        case 'explain': prompt = `Explain this educational concept simply (Use $$ for block math):\n"${selection}"`; break;
+        case 'continue': prompt = `Continue writing educational content naturally (context: "...${context}").\nUse $$ for block math.\n${mcqInstruction}`; break;
         case 'convert-to-notes': prompt = `Convert this text into structured study notes with headings and bullets:\n"${selection}"`; break;
         case 'fix-grammar': prompt = `Fix grammar/spelling:\n"${selection}"`; break;
         case 'rewrite-tone': prompt = `Rewrite in ${param} tone following educational grammar:\n"${selection}"`; break;
+        case 'generate-mcq':
+          prompt = `Generate ${requestedCount || 5} multiple choice questions based on this text using the '? Question' format:\n"${selection}"`;
+          break;
         default: prompt = `${action}: "${selection}"`;
       }
       return `${baseSystem}\n\n${prompt}`;
@@ -2214,72 +2403,41 @@ Text: "${selection}"`;
 
         // Clean AI Text
         aiText = aiText.trim();
-        if (aiText.startsWith('```json')) aiText = aiText.replace(/^```json/, '').replace(/```$/, '');
-        if (aiText.startsWith('```')) aiText = aiText.replace(/^```/, '').replace(/```$/, '');
+        if (aiText.startsWith('```')) aiText = aiText.replace(/^```(\w+)?/, '').replace(/```$/, '');
 
-        // Handle Response Type
-        if (action === 'generate-mcq') {
-          let mcqs = [];
+        // Preview (Simple Text)
+        const previewHTML = `<div class="prose prose-sm font-sans p-2">${aiText.replace(/\n/g, '<br>')}</div>`;
+
+        aiUI.updatePreview(previewHTML);
+        aiUI.setSuccess();
+
+        const userConfirmed = await aiUI.waitForUser();
+        if (userConfirmed) {
+          const chain = editor.chain().focus();
+
+          if (mode !== 'append') {
+            chain.deleteRange(range);
+          }
+
+          // Insert Markdown directly per User Architecture
           try {
-            mcqs = JSON.parse(aiText);
-            if (!Array.isArray(mcqs)) mcqs = [mcqs]; // Handle single object return
-          } catch (e) {
-            throw new Error("AI returned invalid JSON for MCQ.");
+            // Try inserting as markdown. If extension is active, this should work.
+            chain.insertContentAt(mode === 'append' ? range.to : range.start || range.from, aiText, {
+              contentType: 'markdown'
+            });
+          } catch (err) {
+            console.warn("Markdown insert failed, falling back to text", err);
+            chain.insertContentAt(mode === 'append' ? range.to : range.start || range.from, aiText);
           }
 
-          // Render MCQ Preview
-          let previewHTML = mcqs.map((q, i) => `
-                    <div class="mb-4 p-3 border rounded bg-white">
-                        <strong class="block mb-2">${i + 1}. ${q.question}</strong>
-                        <ul class="list-disc pl-5 text-sm text-slate-600">
-                            ${q.options.map(o => `<li class="${o.isCorrect ? 'text-green-600 font-bold' : ''}">${o.text}</li>`).join('')}
-                        </ul>
-                    </div>
-                `).join('');
+          chain.run();
 
-          aiUI.updatePreview(previewHTML);
-          aiUI.setSuccess();
-
-          const userConfirmed = await aiUI.waitForUser();
-          if (userConfirmed) {
-            // Batch Insert MCQs
-            editor.chain().focus()
-              .deleteRange(range)
-              .command(({ tr, commands }) => {
-                mcqs.forEach(q => {
-                  editor.chain().insertContent({
-                    type: 'mcq',
-                    attrs: {
-                      question: q.question,
-                      options: q.options.map(o => ({ ...o, id: Math.random().toString(36).slice(2) }))
-                    }
-                  }).run();
-                });
-                return true;
-              })
-              .run();
-          }
-
-        } else {
-          // Markdown Text
-          // Simple Preview
-          const html = aiText
-            .replace(/^# (.*$)/gim, '<h1 class="text-lg font-bold">$1</h1>')
-            .replace(/^## (.*$)/gim, '<h2 class="text-md font-bold">$1</h2>')
-            .replace(/\*\*(.*?)\*\*/gim, '<b>$1</b>')
-            .replace(/\n/gim, '<br>');
-
-          aiUI.updatePreview(html);
-          aiUI.setSuccess();
-
-          const userConfirmed = await aiUI.waitForUser();
-          if (userConfirmed) {
-            if (mode === 'append') {
-              editor.chain().focus().insertContentAt(range.to, "\n" + aiText).run();
-            } else {
-              editor.chain().focus().deleteRange(range).insertContentAt(range.from, aiText).run();
+          // Post-Process Custom Blocks (Math, MCQ)
+          setTimeout(() => {
+            if (typeof convertCustomBlocksRobust === 'function') {
+              convertCustomBlocksRobust();
             }
-          }
+          }, 50);
         }
 
       } catch (e) {
