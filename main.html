@@ -2085,7 +2085,49 @@
       }
     });
 
-    /* --- Editor Initialization --- */
+    /* --- Persistence & Initialization --- */
+    const STORAGE_KEY = 'tiptap-premium-editor-content';
+    const DEFAULT_CONTENT = {
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 1 },
+          content: [{ type: 'text', text: 'Premium Editor' }]
+        },
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'This is a polished TipTap editor with ' },
+            { type: 'text', marks: [{ type: 'bold' }], text: 'Code highlighting' },
+            { type: 'text', text: ', ' },
+            { type: 'text', marks: [{ type: 'bold' }], text: 'Math' },
+            { type: 'text', text: ' support, and better UI.' }
+          ]
+        },
+        {
+          type: 'codeBlock',
+          attrs: { language: 'javascript' },
+          content: [{ type: 'text', text: "console.log('Hello World');" }]
+        },
+        {
+          type: 'callout',
+          attrs: { type: 'info' },
+          content: [{
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Try typing ' },
+              { type: 'text', marks: [{ type: 'code' }], text: '/' },
+              { type: 'text', text: ' to see the grouped menu.' }
+            ]
+          }]
+        }
+      ]
+    };
+
+    const savedContent = localStorage.getItem(STORAGE_KEY);
+    const initialContent = savedContent ? JSON.parse(savedContent) : DEFAULT_CONTENT;
+
     const editor = new Editor({
       element: document.querySelector('#editor'),
       extensions: [
@@ -2154,50 +2196,16 @@
           }
         })
       ],
-      content: {
-        type: 'doc',
-        content: [
-          {
-            type: 'heading',
-            attrs: { level: 1 },
-            content: [{ type: 'text', text: 'Premium Editor' }]
-          },
-          {
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'This is a polished TipTap editor with ' },
-              { type: 'text', marks: [{ type: 'bold' }], text: 'Code highlighting' },
-              { type: 'text', text: ', ' },
-              { type: 'text', marks: [{ type: 'bold' }], text: 'Math' },
-              { type: 'text', text: ' support, and better UI.' }
-            ]
-          },
-          {
-            type: 'codeBlock',
-            attrs: { language: 'javascript' },
-            content: [{ type: 'text', text: "console.log('Hello World');" }]
-          },
-          {
-            type: 'callout',
-            attrs: { type: 'info' },
-            content: [{
-              type: 'paragraph',
-              content: [
-                { type: 'text', text: 'Try typing ' },
-                { type: 'text', marks: [{ type: 'code' }], text: '/' },
-                { type: 'text', text: ' to see the grouped menu.' }
-              ]
-            }]
-          }
-        ]
-      },
+      content: initialContent,
       editorProps: {
         attributes: {
           class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl focus:outline-none',
         },
       },
       onUpdate({ editor }) {
-        document.getElementById('debug-json').textContent = JSON.stringify(editor.getJSON(), null, 2);
+        const json = editor.getJSON();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
+        document.getElementById('debug-json').textContent = JSON.stringify(json, null, 2);
       }
     });
 
