@@ -400,20 +400,63 @@
       text-transform: uppercase;
     }
 
-    /* Math Block */
-    .math-block {
-      padding: 1rem;
-      background: #fff;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      text-align: center;
+    /* Math Block Improved */
+    .math-block-container {
       margin: 1.5rem 0;
-      cursor: pointer;
-      transition: border 0.2s;
+      border-radius: 0.5rem;
+      border: 1px solid transparent;
+      transition: all 0.2s;
     }
 
-    .math-block:hover {
+    .math-block-container:hover {
+      border-color: #e2e8f0;
+    }
+
+    .math-block-container.is-editing {
       border-color: var(--plate-accent);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      background: #fff;
+    }
+
+    .math-preview {
+      padding: 1rem;
+      text-align: center;
+      cursor: pointer;
+      min-height: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8fafc;
+      border-radius: 0.5rem;
+    }
+
+    .math-preview:hover {
+      background: #f1f5f9;
+    }
+
+    .math-input {
+      width: 100%;
+      padding: 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      background: #1e293b;
+      color: #e2e8f0;
+      border: none;
+      border-radius: 0 0 0.5rem 0.5rem;
+      outline: none;
+      resize: vertical;
+      display: none;
+      /* Hidden by default */
+    }
+
+    .is-editing .math-preview {
+      border-radius: 0.5rem 0.5rem 0 0;
+      border-bottom: 1px solid #e2e8f0;
+      background: #fff;
+    }
+
+    .is-editing .math-input {
+      display: block;
     }
 
     .katex-display {
@@ -484,6 +527,24 @@
     .slash-item.is-selected .slash-item-icon {
       background: #dbeafe;
       color: #2563eb;
+    }
+
+    .slash-item-content {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .slash-item-title {
+      font-weight: 500;
+      line-height: 1.2;
+    }
+
+    .slash-item-desc {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      line-height: 1.2;
+      margin-top: 2px;
     }
 
     /* Placeholders */
@@ -665,7 +726,7 @@
   </div>
 
   <script type="module">
-    import { Editor, Node, mergeAttributes, Extension } from 'https://esm.sh/@tiptap/core@2.2.4?bundle';
+    import { Editor, Node, mergeAttributes, Extension, InputRule } from 'https://esm.sh/@tiptap/core@2.2.4?bundle';
     import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4?bundle';
     import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2.2.4?bundle';
     import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2.2.4?bundle';
@@ -751,42 +812,141 @@
         return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'math-block' })]
       },
 
+      addInputRules() {
+        return [
+          new InputRule({
+            find: /^\$\$\s$/,
+            type: this.type,
+          }),
+        ]
+      },
+
       addNodeView() {
         return ({ node, getPos, editor }) => {
-          const dom = document.createElement('div');
-          dom.classList.add('math-block');
-          dom.title = 'Click to edit formula';
+          const container = document.createElement('div');
+          container.classList.add('math-block-container');
 
-          const render = () => {
-            dom.innerHTML = '';
+          const preview = document.createElement('div');
+          preview.classList.add('math-preview');
+          preview.title = 'Click to edit equation';
+
+          const input = document.createElement('textarea');
+          input.classList.add('math-input');
+          input.value = node.attrs.text;
+          input.placeholder = 'Type LaTeX equation (e.g. E = mc^2)';
+
+          const renderMath = (text) => {
+            preview.innerHTML = '';
+            if (!text || text.trim() === '') {
+              preview.textContent = 'Empty equation';
+              preview.style.color = '#94a3b8';
+              return;
+            }
             try {
-              katex.render(node.attrs.text, dom, {
+              katex.render(text, preview, {
                 throwOnError: false,
                 displayMode: true
               });
+              preview.style.color = 'inherit';
             } catch (e) {
-              dom.textContent = e.message;
+              preview.textContent = e.message;
+              preview.style.color = '#ef4444';
             }
           };
 
-          render();
+          // Initial Render
+          renderMath(node.attrs.text);
 
-          dom.addEventListener('click', () => {
-            const newEq = prompt('Edit Equation (LaTeX):', node.attrs.text);
-            if (newEq !== null && getPos) {
-              editor.commands.updateAttributes(getPos(), { text: newEq });
+          // Interaction Logic
+          let isEditing = false;
+
+          const toggleEdit = (active) => {
+            if (isEditing === active) return; // Debounce duplicate state changes
+            isEditing = active;
+
+            if (active) {
+              container.classList.add('is-editing');
+              // Small delay to ensure display:block applied before focus
+              setTimeout(() => {
+                input.focus();
+              }, 10);
+            } else {
+              container.classList.remove('is-editing');
+              // Save changes if dirty
+              if (input.value !== node.attrs.text) {
+                if (typeof getPos === 'function') {
+                  const pos = getPos();
+                  if (pos !== undefined && pos !== null) {
+                    editor.chain().focus().command(({ tr }) => {
+                      return tr.setNodeAttribute(pos, 'text', input.value);
+                    }).run();
+                  }
+                }
+              }
+            }
+          };
+
+          preview.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleEdit(true);
+          });
+
+          input.addEventListener('input', (e) => {
+            // Just update preview locally, don't trigger transaction yet
+            renderMath(e.target.value);
+          });
+
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              toggleEdit(false);
+              editor.commands.focus(); // Return focus to editor
             }
           });
 
+          // Handle blur - checks if focus moved outside the component
+          input.addEventListener('blur', (e) => {
+            // We use a timeout to allow clicks on other parts of UI to process first if needed
+            // But simpler: just close.
+            toggleEdit(false);
+          });
+
+          container.append(preview, input);
+
           return {
-            dom,
+            dom: container,
+            // Prevent ProtonMirror from re-rendering the node when we type in the textarea
+            ignoreMutation: (mutation) => {
+              // We handle our own mutations (textarea input)
+              return true;
+            },
+            // Stop events from bubbling up to the editor to prevent unwanted side effects
+            stopEvent: (event) => {
+              // Allow default behavior for the textarea (keyboard interaction, etc.)
+              if (event.target === input) {
+                // For keydown, we want to stop propagation so Tiptap doesn't handle Enter/Backspace etc.
+                // But for 'input', maybe not?
+                // Generally returning true safely isolates the input.
+                return true;
+              }
+              return false;
+            },
             update: (updatedNode) => {
               if (updatedNode.type.name !== 'mathBlock') return false;
+              // Sync local state if external update happened (e.g. Undo/Redo)
               if (updatedNode.attrs.text !== node.attrs.text) {
                 node = updatedNode;
-                render();
+                input.value = node.attrs.text;
+                renderMath(node.attrs.text);
               }
               return true;
+            },
+            selectNode: () => {
+              container.classList.add('ProseMirror-selectednode');
+            },
+            deselectNode: () => {
+              container.classList.remove('ProseMirror-selectednode');
+              toggleEdit(false);
             }
           };
         }
@@ -833,7 +993,6 @@
         return ['div', mergeAttributes(HTMLAttributes, { class: 'page-break' })]
       }
     });
-
 
 
     // 5. Custom Code Block with Selector
@@ -925,7 +1084,7 @@
         items: [
           { title: 'Table', icon: '▦', action: editor => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
           { title: 'Code Block', icon: '{ }', action: editor => editor.chain().focus().toggleCodeBlock().run() },
-          { title: 'Math Block', icon: '∑</', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock' }).run() },
+          { title: 'Math Equation', description: 'Insert a block equation (LaTeX)', icon: '∑', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock' }).run() },
           { title: 'Callout', icon: '💡', action: editor => editor.chain().focus().insertContent({ type: 'callout', content: [{ type: 'paragraph' }] }).run() },
           { title: 'Page Break', icon: '✂️', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
         ]
@@ -982,7 +1141,13 @@
                   group.items.forEach(item => {
                     const el = document.createElement('div');
                     el.className = 'slash-item';
-                    el.innerHTML = `<div class="slash-item-icon">${item.icon}</div>${item.title}`;
+                    el.innerHTML = `
+                      <div class="slash-item-icon">${item.icon}</div>
+                      <div class="slash-item-content">
+                        <div class="slash-item-title">${item.title}</div>
+                        ${item.description ? `<div class="slash-item-desc">${item.description}</div>` : ''}
+                      </div>
+                    `;
 
                     el.addEventListener('mousedown', (e) => {
                       e.preventDefault();
