@@ -1475,8 +1475,11 @@
 
               checkbox.onmousedown = (e) => {
                 e.preventDefault();
-                const newOptions = [...node.attrs.options];
-                newOptions[index] = { ...newOptions[index], isCorrect: !newOptions[index].isCorrect };
+                // Single choice logic: Toggle clicked option, reset others to false
+                const newOptions = node.attrs.options.map((opt, i) => ({
+                  ...opt,
+                  isCorrect: i === index ? !opt.isCorrect : false
+                }));
                 updateAttrs({ options: newOptions });
               };
 
