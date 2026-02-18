@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TipTap — Premium Editor</title>
 
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
   <link
     href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
@@ -682,6 +682,43 @@
       color: #0f172a;
     }
 
+    /* Resize Handles */
+    .node-image,
+    .node-video {
+      display: block;
+      /* position: relative; set by style */
+      user-select: none;
+      line-height: 0;
+      /* Remove bottom gap */
+    }
+
+    .node-image img,
+    .node-video video {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .resize-handle {
+      position: absolute;
+      right: -6px;
+      bottom: -6px;
+      width: 12px;
+      height: 12px;
+      background: #3b82f6;
+      border: 2px solid white;
+      border-radius: 50%;
+      cursor: nwse-resize;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 10;
+    }
+
+    .ProseMirror-selectednode .resize-handle,
+    .node-container:hover .resize-handle {
+      opacity: 1;
+    }
+
     /* File Attachment */
     .file-attachment {
       display: flex;
@@ -776,23 +813,40 @@
   </div>
 
   <script type="module">
-    import { Editor, Node, mergeAttributes, Extension, InputRule } from 'https://esm.sh/@tiptap/core@2.2.4?bundle';
-    import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.2.4?bundle';
-    import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2.2.4?bundle';
-    import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2.2.4?bundle';
-    import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2.2.4?bundle';
-    import Link from 'https://esm.sh/@tiptap/extension-link@2.2.4?bundle';
-    import Image from 'https://esm.sh/@tiptap/extension-image@2.2.4?bundle';
-    import Table from 'https://esm.sh/@tiptap/extension-table@2.2.4?bundle';
-    import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2.2.4?bundle';
-    import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2.2.4?bundle';
-    import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2.2.4?bundle';
-    import Youtube from 'https://esm.sh/@tiptap/extension-youtube@2.2.4?bundle';
-    import { BubbleMenu } from 'https://esm.sh/@tiptap/extension-bubble-menu@2.2.4?bundle';
-    import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowlight@2.2.4?bundle';
+    import { Editor, Node, mergeAttributes, Extension, InputRule } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
+
+    import Document from 'https://esm.sh/@tiptap/extension-document@2.11.5?bundle';
+    import Paragraph from 'https://esm.sh/@tiptap/extension-paragraph@2.11.5?bundle';
+    import Text from 'https://esm.sh/@tiptap/extension-text@2.11.5?bundle';
+    import Blockquote from 'https://esm.sh/@tiptap/extension-blockquote@2.11.5?bundle';
+    import BulletList from 'https://esm.sh/@tiptap/extension-bullet-list@2.11.5?bundle';
+    import OrderedList from 'https://esm.sh/@tiptap/extension-ordered-list@2.11.5?bundle';
+    import ListItem from 'https://esm.sh/@tiptap/extension-list-item@2.11.5?bundle';
+    import HardBreak from 'https://esm.sh/@tiptap/extension-hard-break@2.11.5?bundle';
+    import HorizontalRule from 'https://esm.sh/@tiptap/extension-horizontal-rule@2.11.5?bundle';
+    import Heading from 'https://esm.sh/@tiptap/extension-heading@2.11.5?bundle';
+    import Bold from 'https://esm.sh/@tiptap/extension-bold@2.11.5?bundle';
+    import Code from 'https://esm.sh/@tiptap/extension-code@2.11.5?bundle';
+    import Italic from 'https://esm.sh/@tiptap/extension-italic@2.11.5?bundle';
+    import Strike from 'https://esm.sh/@tiptap/extension-strike@2.11.5?bundle';
+    import Dropcursor from 'https://esm.sh/@tiptap/extension-dropcursor@2.11.5?bundle';
+    import Gapcursor from 'https://esm.sh/@tiptap/extension-gapcursor@2.11.5?bundle';
+    import History from 'https://esm.sh/@tiptap/extension-history@2.11.5?bundle';
+    import Placeholder from 'https://esm.sh/@tiptap/extension-placeholder@2.11.5?bundle';
+    import TaskList from 'https://esm.sh/@tiptap/extension-task-list@2.11.5?bundle';
+    import TaskItem from 'https://esm.sh/@tiptap/extension-task-item@2.11.5?bundle';
+    import Link from 'https://esm.sh/@tiptap/extension-link@2.11.5?bundle';
+    import Image from 'https://esm.sh/@tiptap/extension-image@2.11.5?bundle';
+    import Table from 'https://esm.sh/@tiptap/extension-table@2.11.5?bundle';
+    import TableRow from 'https://esm.sh/@tiptap/extension-table-row@2.11.5?bundle';
+    import TableCell from 'https://esm.sh/@tiptap/extension-table-cell@2.11.5?bundle';
+    import TableHeader from 'https://esm.sh/@tiptap/extension-table-header@2.11.5?bundle';
+    import Youtube from 'https://esm.sh/@tiptap/extension-youtube@2.11.5?bundle';
+    import { BubbleMenu } from 'https://esm.sh/@tiptap/extension-bubble-menu@2.11.5?bundle';
+    import CodeBlockLowlight from 'https://esm.sh/@tiptap/extension-code-block-lowlight@2.11.5?bundle';
     import { common, createLowlight } from 'https://esm.sh/lowlight?bundle';
     import katex from 'https://esm.sh/katex';
-    import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.2.4?bundle';
+    import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.11.5?bundle';
     import { Plugin } from 'https://esm.sh/prosemirror-state?bundle';
 
     // Initialize Lowlight (Syntax Highlighting)
@@ -875,6 +929,88 @@
       });
     };
 
+    /* --- Resizable Node View Factory --- */
+    const createResizableNodeView = (type) => {
+      return ({ node, editor, getPos }) => {
+        const container = document.createElement('div');
+        container.classList.add('node-container'); // Helper class for hover
+        container.style.position = 'relative';
+        container.style.display = 'inline-block';
+        container.style.maxWidth = '100%';
+        container.style.margin = '1.5rem 0';
+        container.style.lineHeight = '0';
+
+        // Initial width
+        container.style.width = node.attrs.width || '100%';
+
+        const media = document.createElement(type === 'video' ? 'video' : 'img');
+        if (type === 'video') {
+          media.controls = true;
+          // Prevent drag on video controls from conflicting?
+        }
+        media.style.borderRadius = '12px';
+        media.src = node.attrs.src;
+        media.style.width = '100%';
+        media.style.height = 'auto';
+        media.style.display = 'block';
+        // media.draggable = false; // Let container handle selection
+
+        const handle = document.createElement('div');
+        handle.className = 'resize-handle';
+
+        // Drag logic
+        handle.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          e.stopPropagation(); // Stop editor selection
+          const startX = e.clientX;
+          const startWidth = container.offsetWidth;
+
+          const onMouseMove = (e) => {
+            const currentX = e.clientX;
+            const diffX = currentX - startX;
+            const newWidth = Math.max(100, startWidth + diffX);
+            container.style.width = `${newWidth}px`;
+          };
+
+          const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            if (typeof getPos === 'function') {
+              const pos = getPos();
+              if (pos !== undefined && pos !== null) {
+                editor.commands.updateAttributes(pos, { width: container.style.width });
+              }
+            }
+          };
+
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+        });
+
+        container.append(media, handle);
+
+        return {
+          dom: container,
+          update: (updatedNode) => {
+            if (updatedNode.type.name !== (type === 'video' ? 'video' : 'image')) return false;
+            if (updatedNode.attrs.src !== node.attrs.src) media.src = updatedNode.attrs.src;
+            if (updatedNode.attrs.width !== node.attrs.width) container.style.width = updatedNode.attrs.width;
+            node = updatedNode;
+            return true;
+          },
+          selectNode: () => {
+            container.classList.add('ProseMirror-selectednode');
+            media.style.outline = '3px solid #3b82f6';
+            media.style.outlineOffset = '2px';
+          },
+          deselectNode: () => {
+            container.classList.remove('ProseMirror-selectednode');
+            media.style.outline = 'none';
+          }
+        };
+      }
+    }
+
     // 0. Video Node (Local)
     const Video = Node.create({
       name: 'video',
@@ -886,6 +1022,7 @@
       addAttributes() {
         return {
           src: { default: null },
+          width: { default: '100%' }
         }
       },
 
@@ -894,7 +1031,26 @@
       },
 
       renderHTML({ HTMLAttributes }) {
-        return ['video', mergeAttributes(HTMLAttributes, { controls: 'true', style: 'width: 100%; max-height: 480px; border-radius: 12px; display: block; margin: 1.5rem 0;' })]
+        return ['video', mergeAttributes(HTMLAttributes, { controls: 'true', style: `width: ${HTMLAttributes.width}` })]
+      },
+
+      addNodeView() {
+        return createResizableNodeView('video');
+      }
+    });
+
+    // Custom Image Node for Resizing
+    const CustomImage = Image.extend({
+      addAttributes() {
+        // Safe fallback for parent attributes
+        const parentAttrs = this.parent ? this.parent() : {};
+        return {
+          ...parentAttrs,
+          width: { default: '100%' }
+        }
+      },
+      addNodeView() {
+        return createResizableNodeView('image');
       }
     });
 
@@ -1406,18 +1562,33 @@
     const editor = new Editor({
       element: document.querySelector('#editor'),
       extensions: [
-        StarterKit.configure({
-          codeBlock: false, // Disabling default CodeBlock to use Lowlight
-          heading: { levels: [1, 2, 3] },
-          dropcursor: { color: '#3b82f6', width: 2 }
-        }),
+        Document,
+        Paragraph,
+        Text,
+        Blockquote,
+        BulletList,
+        OrderedList,
+        ListItem,
+        HardBreak,
+        HorizontalRule,
+        Heading.configure({ levels: [1, 2, 3] }),
+        Bold,
+        Code,
+        Italic,
+        Strike,
+        Dropcursor.configure({ color: '#3b82f6', width: 2 }),
+        Gapcursor,
+        History,
         Placeholder.configure({
           placeholder: 'Type / for commands...',
         }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Link.configure({ openOnClick: false }),
-        Image,
+        CustomImage.configure({
+          allowBase64: true,
+          inline: true,
+        }),
         Youtube.configure({ controls: false }),
         Table.configure({ resizable: true }),
         TableRow, TableHeader, TableCell,
