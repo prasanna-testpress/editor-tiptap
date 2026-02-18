@@ -857,7 +857,7 @@
   </div>
 
   <script type="module">
-    import { Editor, Node, mergeAttributes, Extension, InputRule } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
+    import { Editor, Node, mergeAttributes, Extension, InputRule, wrappingInputRule } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
 
     import Document from 'https://esm.sh/@tiptap/extension-document@2.11.5?bundle';
     import Paragraph from 'https://esm.sh/@tiptap/extension-paragraph@2.11.5?bundle';
@@ -1342,20 +1342,124 @@
           type: { default: 'info' }
         }
       },
+      addInputRules() {
+        return [
+          wrappingInputRule({ find: /^! $/, type: this.type }),
+          wrappingInputRule({ find: /^!info $/, type: this.type, getAttributes: () => ({ type: 'info' }) }),
+          wrappingInputRule({ find: /^!success $/, type: this.type, getAttributes: () => ({ type: 'success' }) }),
+          wrappingInputRule({ find: /^!warning $/, type: this.type, getAttributes: () => ({ type: 'warning' }) }),
+          wrappingInputRule({ find: /^!error $/, type: this.type, getAttributes: () => ({ type: 'error' }) }),
+        ]
+      },
+      addKeyboardShortcuts() {
+        return {
+          'Enter': ({ editor }) => {
+            if (!editor.isActive('callout')) return false;
+            const { selection } = editor.state;
+            if (selection.$from.parent.content.size === 0) return editor.commands.lift('callout');
+            return false;
+          },
+          'Backspace': ({ editor }) => {
+            if (!editor.isActive('callout')) return false;
+            const { selection } = editor.state;
+            if (selection.empty && selection.$from.parentOffset === 0 && selection.$from.parent.content.size === 0) {
+              return editor.commands.lift('callout');
+            }
+            return false;
+          },
+        }
+      },
+      addNodeView() {
+        return ({ node, editor, getPos }) => {
+          const dom = document.createElement('div');
+          dom.classList.add('callout', `callout-${node.attrs.type}`);
+          dom.style.position = 'relative';
+
+          const icon = document.createElement('span');
+          icon.className = 'callout-icon';
+          icon.contentEditable = 'false';
+          const getIcon = (t) => {
+            if (t === 'success') return '✅';
+            if (t === 'warning') return '⚠️';
+            if (t === 'error') return '⛔';
+            return '💡';
+          };
+          icon.innerText = getIcon(node.attrs.type);
+
+          const content = document.createElement('div');
+          content.className = 'callout-content';
+          content.style.flex = '1';
+
+          // Type Selector (Premium Feature)
+          const select = document.createElement('select');
+          select.className = 'callout-type-select';
+          select.style.cssText = `
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.1);
+            background: rgba(255,255,255,0.8);
+            opacity: 0;
+            transition: opacity 0.2s;
+            cursor: pointer;
+            outline: none;
+            color: #475569;
+            font-weight: 600;
+          `;
+          ['info', 'success', 'warning', 'error'].forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.innerText = t.charAt(0).toUpperCase() + t.slice(1);
+            if (node.attrs.type === t) opt.selected = true;
+            select.appendChild(opt);
+          });
+
+          dom.onmouseenter = () => select.style.opacity = '1';
+          dom.onmouseleave = () => select.style.opacity = '0';
+
+          select.onchange = (e) => {
+            if (typeof getPos === 'function') {
+              editor.commands.updateAttributes(getPos(), { type: e.target.value });
+            }
+          };
+
+          dom.append(icon, content, select);
+
+          return {
+            dom,
+            contentDOM: content,
+            update: (updatedNode) => {
+              if (updatedNode.type.name !== 'callout') return false;
+              if (updatedNode.attrs.type !== node.attrs.type) {
+                dom.classList.remove(`callout-${node.attrs.type}`);
+                dom.classList.add(`callout-${updatedNode.attrs.type}`);
+                icon.innerText = getIcon(updatedNode.attrs.type);
+                select.value = updatedNode.attrs.type;
+              }
+              node = updatedNode;
+              return true;
+            }
+          };
+        }
+      },
+      addStorage() {
+        return {
+          markdown: {
+            serialize: (state, node) => {
+              state.write(`> [!${node.attrs.type || 'info'}]\n`);
+              state.renderContent(node);
+            }
+          }
+        }
+      },
       parseHTML() {
-        return [{
-          tag: 'div[data-type="callout"]',
-          contentElement: '.callout-content' // Tell Tiptap to look for content HERE
-        }]
+        return [{ tag: 'div[data-type="callout"]', contentElement: '.callout-content' }]
       },
       renderHTML({ HTMLAttributes }) {
-        let icon = '💡';
-        if (HTMLAttributes.type === 'success') icon = '✅';
-        if (HTMLAttributes.type === 'warning') icon = '⚠️';
-        if (HTMLAttributes.type === 'error') icon = '⛔';
-
-        return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout-${HTMLAttributes.type}` }),
-          ['span', { class: 'callout-icon', contenteditable: 'false' }, icon],
+        return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout-${HTMLAttributes.type}`, 'data-type': 'callout' }),
           ['div', { class: 'callout-content' }, 0]
         ]
       }
@@ -1443,6 +1547,30 @@
             ],
           }
         }
+      },
+      addStorage() {
+        return {
+          markdown: {
+            serialize: (state, node) => {
+              state.write(`? ${node.attrs.question}\n`);
+              node.attrs.options.forEach(opt => {
+                state.write(`${opt.isCorrect ? '(x)' : '( )'} ${opt.text}\n`);
+              });
+              state.closeBlock(node);
+            }
+          }
+        }
+      },
+      addInputRules() {
+        return [
+          new InputRule({
+            find: /^\? $/,
+            handler: ({ state, range }) => {
+              const { tr } = state;
+              tr.replaceWith(range.from, range.to, this.type.create());
+            }
+          }),
+        ]
       },
 
       parseHTML() {
@@ -1755,6 +1883,21 @@
               const file = await triggerFileUpload('*/*');
               if (file) editor.chain().focus().insertContent({ type: 'fileAttachment', attrs: { src: file.src, name: file.name, size: file.size } }).run();
             }
+          },
+          {
+            title: 'Embed URL',
+            description: 'YouTube, Link, etc.',
+            icon: '🔗',
+            action: async (editor) => {
+              const url = await Modal.open('Insert Content', 'https://...');
+              if (url) {
+                if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                  editor.chain().focus().setYoutube({ src: url }).run();
+                } else {
+                  editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+                }
+              }
+            }
           }
         ]
       },
@@ -1780,11 +1923,14 @@
       {
         title: 'Blocks',
         items: [
-          { title: 'Mcq', description: 'Insert an MCQ block', icon: '📝', action: editor => editor.chain().focus().insertContent({ type: 'mcq' }).run() },
+          { title: 'Mcq', description: 'Insert an MCQ block', icon: '📝', action: editor => editor.chain().focus().insertContent({ type: 'mcq', attrs: { question: 'Enter your question here?' } }).run() },
           { title: 'Table', icon: '▦', action: editor => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
           { title: 'Code Block', icon: '{ }', action: editor => editor.chain().focus().toggleCodeBlock().run() },
-          { title: 'Math Equation', description: 'Insert a block equation (LaTeX)', icon: '∑', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock' }).run() },
-          { title: 'Callout', icon: '💡', action: editor => editor.chain().focus().insertContent({ type: 'callout', content: [{ type: 'paragraph' }] }).run() },
+          { title: 'Math Equation', description: 'Insert a block equation (LaTeX)', icon: '∑', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: 'E = mc^2' } }).run() },
+          { title: 'Info Callout', icon: '💡', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Enter information here...' }] }] }).run() },
+          { title: 'Success Callout', icon: '✅', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'success' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task completed successfully!' }] }] }).run() },
+          { title: 'Warning Callout', icon: '⚠️', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'warning' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please be careful with this action.' }] }] }).run() },
+          { title: 'Error Callout', icon: '⛔', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'error' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An error occurred. Please check your input.' }] }] }).run() },
           { title: 'Page Break', icon: '✂️', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
         ]
       },
@@ -2206,18 +2352,45 @@
             });
             return;
           }
+
+          // Callout Block Detection
+          if (text.startsWith('! ')) {
+            const types = ['info', 'success', 'warning', 'error'];
+            let detectedType = 'info';
+            let contentText = text.slice(2).trim();
+
+            for (const t of types) {
+              if (text.startsWith(`!${t} `)) {
+                detectedType = t;
+                contentText = text.slice(t.length + 2).trim();
+                break;
+              }
+            }
+
+            updates.push({
+              from: offset,
+              to: offset + node.nodeSize,
+              type: 'callout',
+              attrs: { type: detectedType },
+              // We need to create the content manually during mapping if possible,
+              // but convertCustomBlocksRobust uses replaceWith.
+              // We'll wrap the text in a paragraph node inside the callout.
+              content: contentText
+            });
+            return;
+          }
           // Detect proper $$ block
 
-// Detect multiple inline math lines stacked
-if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
-  const mathText = node.textContent.replace(/\$/g, '').trim();
-  updates.push({
-    from: offset,
-    to: offset + node.nodeSize,
-    type: 'mathBlock',
-    attrs: { text: mathText }
-  });
-}
+          // Detect multiple inline math lines stacked
+          if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
+            const mathText = node.textContent.replace(/\$/g, '').trim();
+            updates.push({
+              from: offset,
+              to: offset + node.nodeSize,
+              type: 'mathBlock',
+              attrs: { text: mathText }
+            });
+          }
 
           // Single-Paragraph MCQ (e.g. "? Q\n( ) A\n( ) B")
           const lines = text.split('\n').map(l => l.trim()).filter(l => l);
@@ -2307,7 +2480,7 @@ if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
           from: nodesToRemove[0].from,
           to: nodesToRemove[nodesToRemove.length - 1].to,
           type: 'mcq',
-          attrs: { question: questionText, options: [...options] }
+          attrs: { question: questionText, options: [...options], markdown: fullMarkdown }
         });
       }
 
@@ -2316,16 +2489,22 @@ if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
         updates.sort((a, b) => b.from - a.from);
         const transaction = editor.state.tr;
         updates.forEach(u => {
-          transaction.replaceWith(u.from, u.to, editor.schema.nodes[u.type].create(u.attrs));
+          if (u.type === 'callout') {
+            // Special handling for callout (block+ node)
+            const paragraph = editor.schema.nodes.paragraph.create(null, editor.schema.text(u.content || ''));
+            transaction.replaceWith(u.from, u.to, editor.schema.nodes.callout.create(u.attrs, paragraph));
+          } else {
+            transaction.replaceWith(u.from, u.to, editor.schema.nodes[u.type].create(u.attrs));
+          }
         });
         editor.view.dispatch(transaction);
       }
     };
 
     // 2. Prompt Builder (PURE MARKDOWN MODE)
-const buildPrompt = (action, selection, fullDoc, param = '') => {
+    const buildPrompt = (action, selection, fullDoc, param = '') => {
 
-  const baseSystem = `
+      const baseSystem = `
 You are an AI writing assistant for a structured rich text editor.
 
 You MUST output STRICT MARKDOWN ONLY.
@@ -2401,42 +2580,42 @@ If user asks for both explanation and MCQ:
 Output only structured educational content.
 `;
 
-  const context = fullDoc.slice(-3000);
+      const context = fullDoc.slice(-3000);
 
-  let prompt = '';
+      let prompt = '';
 
-  switch (action) {
+      switch (action) {
 
-    case 'improve':
-      prompt = `
+        case 'improve':
+          prompt = `
 Rewrite the following text to be professional, clear, and educational.
 
 Text:
 "${selection}"
 `;
-      break;
+          break;
 
-    case 'summarize':
-      prompt = `
+        case 'summarize':
+          prompt = `
 Summarize the following content in structured bullet format.
 
 Text:
 "${selection}"
 `;
-      break;
+          break;
 
-    case 'explain':
-      prompt = `
+        case 'explain':
+          prompt = `
 Explain this concept clearly for students.
 Use structured sections if helpful.
 
 Text:
 "${selection}"
 `;
-      break;
+          break;
 
-    case 'continue':
-  prompt = `
+        case 'continue':
+          prompt = `
 Continue the document naturally from where it ends.
 
 Rules:
@@ -2449,22 +2628,22 @@ Rules:
 Document Context:
 ${context}
 `;
-  break;
+          break;
 
-      break;
+          break;
 
-    case 'convert-to-notes':
-      prompt = `
+        case 'convert-to-notes':
+          prompt = `
 Convert this content into structured study notes.
 Use headings and bullet points where appropriate.
 
 Text:
 "${selection}"
 `;
-      break;
+          break;
 
-    case 'fix-grammar':
-  prompt = `
+        case 'fix-grammar':
+          prompt = `
 Correct ONLY grammar and spelling mistakes.
 
 STRICT RULES:
@@ -2481,10 +2660,10 @@ Text:
 "${selection}"
 `;
 
-      break;
+          break;
 
-    case 'rewrite-tone':
-  prompt = `
+        case 'rewrite-tone':
+          prompt = `
 Rewrite ONLY the provided text in ${param} tone.
 
 STRICT RULES:
@@ -2498,39 +2677,39 @@ STRICT RULES:
 Text:
 "${selection}"
 `;
-  break;
-      break;
+          break;
+          break;
 
-    case 'generate-mcq':
-      prompt = `
+        case 'generate-mcq':
+          prompt = `
 Generate multiple choice questions using the EXACT MCQ format defined above.
 
 Text:
 "${selection}"
 `;
-      break;
+          break;
 
-    case 'write':
-      prompt = `
+        case 'write':
+          prompt = `
 Generate structured educational content based on the following instruction.
 Use headings, paragraphs, lists, math, or code if appropriate.
 
 Instruction:
 "${selection}"
 `;
-      break;
+          break;
 
-    default:
-      prompt = `
+        default:
+          prompt = `
 ${action}
 
 Text:
 "${selection}"
 `;
-  }
+      }
 
-  return `${baseSystem}\n\n${prompt}`;
-};
+      return `${baseSystem}\n\n${prompt}`;
+    };
 
     // 3. Main Handler
     const handleAIRequest = async (action, param) => {
