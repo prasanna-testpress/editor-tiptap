@@ -681,6 +681,47 @@
       background: #f1f5f9;
       color: #0f172a;
     }
+
+    /* File Attachment */
+    .file-attachment {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin: 1.5rem 0;
+      text-decoration: none;
+      transition: all 0.2s;
+      width: fit-content;
+      cursor: pointer;
+    }
+
+    .file-attachment:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+
+    .file-icon {
+      font-size: 1.5rem;
+    }
+
+    .file-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .file-name {
+      font-weight: 500;
+      color: #334155;
+      font-size: 0.95rem;
+    }
+
+    .file-size {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
   </style>
 </head>
 
@@ -722,6 +763,15 @@
         <button id="modal-cancel" class="btn btn-secondary">Cancel</button>
         <button id="modal-confirm" class="btn btn-primary">Insert</button>
       </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="modal-overlay" style="z-index: 200;">
+    <div class="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center">
+      <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
+      <p class="text-slate-600 font-medium">Uploading...</p>
     </div>
   </div>
 
@@ -790,7 +840,108 @@
       if (e.key === 'Escape') Modal.cancel.click();
     };
 
-    /* --- Custom Nodes --- */
+    /* --- File Upload Helper --- */
+    const triggerFileUpload = (accept) => {
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = accept;
+        input.onchange = (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const loading = document.getElementById('loading-overlay');
+            loading.classList.add('active'); // Show loading
+
+            // Use URL.createObjectURL instead of FileReader for performance.
+            // Reading large files (videos) as Base64 strings (readAsDataURL) freezes the main thread.
+            // Blob URLs are instant and lightweight.
+            const objectUrl = URL.createObjectURL(file);
+
+            // Simulate a small network delay for realism/UX
+            setTimeout(() => {
+              loading.classList.remove('active'); // Hide loading
+              resolve({
+                src: objectUrl,
+                name: file.name,
+                size: file.size,
+                type: file.type
+              });
+            }, 600);
+          } else {
+            resolve(null);
+          }
+        };
+        input.click();
+      });
+    };
+
+    // 0. Video Node (Local)
+    const Video = Node.create({
+      name: 'video',
+      group: 'block',
+      selectable: true,
+      draggable: true,
+      atom: true,
+
+      addAttributes() {
+        return {
+          src: { default: null },
+        }
+      },
+
+      parseHTML() {
+        return [{ tag: 'video' }]
+      },
+
+      renderHTML({ HTMLAttributes }) {
+        return ['video', mergeAttributes(HTMLAttributes, { controls: 'true', style: 'width: 100%; max-height: 480px; border-radius: 12px; display: block; margin: 1.5rem 0;' })]
+      }
+    });
+
+    // 0. File Attachment Node
+    const FileAttachment = Node.create({
+      name: 'fileAttachment',
+      group: 'block',
+      atom: true,
+
+      addAttributes() {
+        return {
+          src: { default: null },
+          name: { default: 'file' },
+          size: { default: 0 }
+        }
+      },
+
+      parseHTML() {
+        return [{ tag: 'div[data-type="file-attachment"]' }]
+      },
+
+      renderHTML({ HTMLAttributes }) {
+        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'file-attachment' })]
+      },
+
+      addNodeView() {
+        return ({ node }) => {
+          const dom = document.createElement('a');
+          dom.className = 'file-attachment';
+          dom.href = node.attrs.src;
+          dom.download = node.attrs.name;
+          dom.contentEditable = 'false';
+
+          const sizeKB = (node.attrs.size / 1024).toFixed(1);
+
+          dom.innerHTML = `
+            <div class="file-icon">📎</div>
+            <div class="file-info">
+              <span class="file-name">${node.attrs.name}</span>
+              <span class="file-size">${sizeKB} KB</span>
+            </div>
+          `;
+
+          return { dom };
+        }
+      }
+    });
 
     // 1. Math Block
     const MathBlock = Node.create({
@@ -1063,18 +1214,29 @@
         items: [
           {
             title: 'Image',
+            description: 'Upload an image',
             icon: '🖼️',
             action: async (editor) => {
-              const url = await Modal.open('Insert Image URL');
-              if (url) editor.chain().focus().setImage({ src: url }).run();
+              const file = await triggerFileUpload('image/*');
+              if (file) editor.chain().focus().setImage({ src: file.src }).run();
             }
           },
           {
-            title: 'YouTube',
-            icon: '▶️',
+            title: 'Video',
+            description: 'Upload a video',
+            icon: '📹',
             action: async (editor) => {
-              const url = await Modal.open('Insert YouTube URL');
-              if (url) editor.chain().focus().setYoutubeVideo({ src: url }).run();
+              const file = await triggerFileUpload('video/*');
+              if (file) editor.chain().focus().insertContent({ type: 'video', attrs: { src: file.src } }).run();
+            }
+          },
+          {
+            title: 'File',
+            description: 'Upload a file attachment',
+            icon: '📎',
+            action: async (editor) => {
+              const file = await triggerFileUpload('*/*');
+              if (file) editor.chain().focus().insertContent({ type: 'fileAttachment', attrs: { src: file.src, name: file.name, size: file.size } }).run();
             }
           }
         ]
@@ -1268,6 +1430,8 @@
         Callout,
         PageBreak,
         // DateTime,
+        Video,
+        FileAttachment,
         SlashCommand,
         BubbleMenu.configure({
           element: document.querySelector('#table-bubble-menu'),
