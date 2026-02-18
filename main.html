@@ -1639,6 +1639,53 @@
           // 3. Question Input
           const questionInput = document.createElement('input');
           questionInput.type = 'text';
+
+          // Helper for Jumping Blocks
+          const jumpForward = () => {
+            editor.commands.focus();
+            // Manually trigger the shortcut command logic or simulating keypress is hard, 
+            // easier to just dispatch the selection logic directly if needed, 
+            // but 'editor.commands.keyboardShortcut' isn't a standard public API for *triggering*.
+            // We will manually execute the logic:
+            const { state } = editor;
+            const { doc } = state;
+            // We are inside a node, getPos() is current node start
+            if (typeof getPos === 'function') {
+              const nextPos = getPos() + node.nodeSize;
+              if (nextPos < doc.content.size) {
+                const nextSelection = TextSelection.near(doc.resolve(nextPos), 1);
+                editor.view.dispatch(state.tr.setSelection(nextSelection));
+                editor.view.focus();
+              }
+            }
+          };
+
+          const jumpBackward = () => {
+            editor.commands.focus();
+            if (typeof getPos === 'function') {
+              const { state } = editor;
+              const { doc } = state;
+              const prevPos = getPos();
+              if (prevPos > 0) {
+                const prevSelection = TextSelection.near(doc.resolve(prevPos - 1), -1);
+                editor.view.dispatch(state.tr.setSelection(prevSelection));
+                editor.view.focus();
+              }
+            }
+          };
+
+          const handleBlockJump = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') {
+              e.preventDefault();
+              jumpForward();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') {
+              e.preventDefault();
+              jumpBackward();
+            }
+          };
+
+          questionInput.addEventListener('keydown', handleBlockJump);
           questionInput.placeholder = 'Enter your question...';
           questionInput.value = node.attrs.question;
           questionInput.setAttribute('aria-label', 'Question');
@@ -1739,6 +1786,7 @@
               input.type = 'text';
               input.value = option.text;
               input.placeholder = `Option ${index + 1}`;
+              input.addEventListener('keydown', handleBlockJump);
               input.setAttribute('aria-label', `Option ${index + 1} text`);
               input.style.cssText = `
                 flex: 1;
@@ -1845,6 +1893,7 @@
           // 6. Add Button
           const addBtn = document.createElement('button');
           addBtn.innerHTML = '+ Add Option';
+          addBtn.addEventListener('keydown', handleBlockJump);
           addBtn.setAttribute('aria-label', 'Add new option');
           addBtn.style.cssText = `
             margin-top: 1rem;
@@ -1886,13 +1935,10 @@
 
           dom.append(questionInput, optionsCtx, addBtn);
 
-          // Auto-focus logic check: if current selection is near this node, auto-focus?
-          // Or if it was just inserted?
-          // We can't easily detect "just inserted" in NodeView without a flag.
-          // However, if question is empty, focus it.
-          if (node.attrs.question === '') {
-            setTimeout(() => questionInput.focus(), 50);
-          }
+          dom.append(questionInput, optionsCtx, addBtn);
+
+          // Removed unconditional autofocus that was causing focus stealing bugs
+          // Focus is now handled by selectNode or interactions
 
           return {
             dom,
@@ -1920,20 +1966,63 @@
                 questionInput.value = updatedNode.attrs.question;
               }
 
-              // Options Sync
-              if (JSON.stringify(updatedNode.attrs.options) !== JSON.stringify(node.attrs.options)) {
-                node = updatedNode; // Update reference for renderOptions
+              // Options Sync: Only re-render if count changes (add/delete)
+              // Text changes inside inputs are handled by native DOM + attribute updates
+              if (updatedNode.attrs.options.length !== node.attrs.options.length) {
+                node = updatedNode; // Update reference
                 renderOptions();
               } else {
-                node = updatedNode;
+                // Determine if we need to re-render checkboxes? 
+                // If text changed, we DON'T re-render.
+                // If isCorrect changed, we might need to update visual state of checkboxes.
+                // Let's check isCorrect changes:
+                const oldOpts = node.attrs.options;
+                const newOpts = updatedNode.attrs.options;
+
+                // Simple check: if isCorrect status mismatch, we might want to update checkboxes specifically
+                // or just re-render is fine if it's a click interaction (focus usually not in text input then).
+                // But safer to just re-render if non-text attributes change? 
+                // The prompt specifically asked: "Only re-render when option count changes".
+                // We will stick to that to be safe first.
+
+                // Actually, if we toggle 'isCorrect', we DO need to update the checkbox UI.
+                // The user logic `renderOptions()` rebuilds the whole list.
+                // If we toggle correct, we lose focus? Focus is on the checkbox div, so it's okay.
+                // It's mainly about typing text.
+
+                // Let's verify if only text changed.
+                let onlyTextDiff = true;
+                if (oldOpts.length === newOpts.length) {
+                  for (let i = 0; i < oldOpts.length; i++) {
+                    if (oldOpts[i].isCorrect !== newOpts[i].isCorrect) {
+                      onlyTextDiff = false;
+                      break;
+                    }
+                  }
+                }
+
+                if (!onlyTextDiff) {
+                  node = updatedNode;
+                  renderOptions();
+                } else {
+                  node = updatedNode;
+                }
               }
               return true;
             },
             selectNode: () => {
               dom.style.borderColor = '#3b82f6';
               dom.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-              // Optional: Focus question if selected via keyboard?
-              // questionInput.focus(); 
+
+              // Only focus if selection is explicitly on this node (e.g. via keyboard selection)
+              // and NOT during arbitrary updates
+              const { state } = editor;
+              const { selection } = state;
+              if (selection instanceof NodeSelection && selection.node === node) {
+                setTimeout(() => {
+                  if (questionInput) questionInput.focus();
+                }, 10);
+              }
             },
             deselectNode: () => {
               dom.style.borderColor = '#e2e8f0';
@@ -2515,6 +2604,36 @@
                 }
               })
             ];
+          }
+        }),
+
+        Extension.create({
+          name: 'ctrlArrowBlockJump',
+          addKeyboardShortcuts() {
+            return {
+              'Mod-ArrowDown': ({ editor }) => {
+                const { state } = editor;
+                const { selection, doc } = state;
+                const { $from } = selection;
+                const nextPos = $from.after();
+                if (nextPos >= doc.content.size) return true;
+                const nextSelection = TextSelection.near(doc.resolve(nextPos), 1);
+                editor.view.dispatch(state.tr.setSelection(nextSelection));
+                editor.view.focus();
+                return true;
+              },
+              'Mod-ArrowUp': ({ editor }) => {
+                const { state } = editor;
+                const { selection, doc } = state;
+                const { $from } = selection;
+                const prevPos = $from.before();
+                if (prevPos <= 0) return true;
+                const prevSelection = TextSelection.near(doc.resolve(prevPos - 1), -1);
+                editor.view.dispatch(state.tr.setSelection(prevSelection));
+                editor.view.focus();
+                return true;
+              }
+            };
           }
         }),
 
