@@ -2436,16 +2436,21 @@ Text:
       break;
 
     case 'continue':
-      prompt = `
-Continue writing content naturally.
-Use previous context for coherence.
+  prompt = `
+Continue the document naturally from where it ends.
 
-Previous Context:
-"...${context}"
+Rules:
+- Do NOT rewrite existing content.
+- Maintain the same heading hierarchy.
+- Add new sections if appropriate.
+- Output STRICT MARKDOWN only.
+- Do not use JSON.
 
-Continue from here:
-"${selection}"
+Document Context:
+${context}
 `;
+  break;
+
       break;
 
     case 'convert-to-notes':
@@ -2459,21 +2464,41 @@ Text:
       break;
 
     case 'fix-grammar':
-      prompt = `
-Fix grammar and spelling while preserving meaning.
+  prompt = `
+Correct ONLY grammar and spelling mistakes.
+
+STRICT RULES:
+- Do NOT rewrite sentences.
+- Do NOT improve wording.
+- Do NOT add new sentences.
+- Do NOT remove content.
+- Do NOT change structure.
+- Keep the exact same formatting.
+- Return the same number of sentences.
+- If there are no grammar mistakes, return the original text unchanged.
 
 Text:
 "${selection}"
 `;
+
       break;
 
     case 'rewrite-tone':
-      prompt = `
-Rewrite this content in ${param} tone while keeping meaning intact.
+  prompt = `
+Rewrite ONLY the provided text in ${param} tone.
+
+STRICT RULES:
+- Do NOT add new information.
+- Do NOT add headings.
+- Do NOT reference other document sections.
+- Do NOT expand beyond the original idea.
+- Keep it approximately the same length.
+- Output only the rewritten sentence.
 
 Text:
 "${selection}"
 `;
+  break;
       break;
 
     case 'generate-mcq':
