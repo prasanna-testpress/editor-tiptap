@@ -1761,7 +1761,13 @@
       {
         title: 'AI Actions',
         items: [
-          { title: 'Write/Continue', icon: '➡️', action: editor => handleAIRequest('continue') },
+          {
+            title: 'Write with AI',
+            description: 'Generate structured educational content',
+            icon: '✍️',
+            action: editor => handleAIRequest('write')
+          },
+          { title: 'Continue', icon: '➡️', action: editor => handleAIRequest('continue') },
           { title: 'Improve Writing', icon: '✨', action: editor => handleAIRequest('improve') },
           { title: 'Summarize', icon: '📝', action: editor => handleAIRequest('summarize') },
           { title: 'Explain', icon: '🤔', action: editor => handleAIRequest('explain') },
@@ -2191,7 +2197,7 @@
           const text = node.textContent.trim();
 
           // Math Block
-          if (text.startsWith('$$') && text.endsWith('$$') && text.length > 4) {
+          if (text.startsWith('$$') && text.endsWith('$$')) {
             updates.push({
               from: offset,
               to: offset + node.nodeSize,
@@ -2200,6 +2206,18 @@
             });
             return;
           }
+          // Detect proper $$ block
+
+// Detect multiple inline math lines stacked
+if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
+  const mathText = node.textContent.replace(/\$/g, '').trim();
+  updates.push({
+    from: offset,
+    to: offset + node.nodeSize,
+    type: 'mathBlock',
+    attrs: { text: mathText }
+  });
+}
 
           // Single-Paragraph MCQ (e.g. "? Q\n( ) A\n( ) B")
           const lines = text.split('\n').map(l => l.trim()).filter(l => l);
@@ -2305,55 +2323,189 @@
     };
 
     // 2. Prompt Builder (PURE MARKDOWN MODE)
-    const buildPrompt = (action, selection, fullDoc, param = '') => {
-      const baseSystem = `You are an AI writing assistant for a structured educational editor.
-You MUST output STRICT MARKDOWN.
+const buildPrompt = (action, selection, fullDoc, param = '') => {
+
+  const baseSystem = `
+You are an AI writing assistant for a structured rich text editor.
+
+You MUST output STRICT MARKDOWN ONLY.
 Do NOT use JSON.
+Do NOT use HTML.
+Do NOT wrap entire response in a single code block.
+Do NOT add conversational phrases like "Here is" or "Sure".
 
-FORMATTING RULES:
-- Use standard Markdown for headings (#), lists (-), and bold (**).
-- Math Equations: Use $$ ... $$ for block math (put on new line).
-- Inline Math: Use $ ... $.
+==============================
+FORMATTING RULES (MANDATORY)
+==============================
 
-INTERACTIVE ELEMENTS:
-To create a Multiple Choice Question (MCQ), use this EXACT text format:
-? Question text here
+HEADINGS
+- Use # for main title
+- Use ## for sections
+- Use ### for subsections
+- Do NOT use #### or deeper
+
+PARAGRAPHS
+- Maximum 4 lines per paragraph
+- Always leave ONE blank line between paragraphs
+- Never output one large paragraph
+
+BULLET LIST
+- Use "- " only
+- Leave one blank line before list
+- Do NOT use "*"
+
+NUMBERED LIST
+1. Step one
+2. Step two
+- Leave one blank line before list
+
+CODE BLOCK
+Use triple backticks with language:
+\`\`\`python
+code here
+\`\`\`
+Only use code blocks if user asks for example code.
+
+MATH
+Inline math: $a^2 + b^2$
+Block math:
+$$
+a^2 + b^2 = c^2
+$$
+Always place block math on separate lines.
+
+==============================
+MCQ FORMAT (ONLY IF USER ASKS)
+==============================
+
+Use EXACT format:
+
+? Question text
 ( ) Option A
-(x) Correct Option B
+(x) Correct Option
 ( ) Option C
+( ) Option D
 
 Rules:
-- The "(x)" marks the correct answer.
-- Leave an empty line before and after the MCQ.
-- **EACH OPTION MUST BE ON A NEW LINE.**
+- Each option MUST be on a new line
+- "(x)" marks the correct answer
+- Leave one blank line between questions
+- Do NOT use markdown formatting inside MCQ
+- Do NOT mix explanation inside MCQ block
+
+If user asks for both explanation and MCQ:
+1. Write explanation first
+2. Leave one blank line
+3. Then write MCQ section
+
+Output only structured educational content.
 `;
 
-      const context = fullDoc.slice(-3000);
+  const context = fullDoc.slice(-3000);
 
-      let prompt = '';
+  let prompt = '';
 
-      // Extract quantity
-      const countMatch = selection.match(/(\d+)\s*(?:quiz|mcq|question)/i);
-      const requestedCount = countMatch ? parseInt(countMatch[1]) : 0;
-      const quantityText = requestedCount > 0 ? `GENERATE EXACTLY ${requestedCount} QUESTIONS.` : "Include relevant questions.";
+  switch (action) {
 
-      const mcqInstruction = `\nInclude MCQs using the '? Question' format. ${quantityText}`;
+    case 'improve':
+      prompt = `
+Rewrite the following text to be professional, clear, and educational.
 
-      switch (action) {
-        case 'improve': prompt = `Rewrite to be professional, educational, and concise:\n"${selection}"`; break;
-        case 'summarize': prompt = `Summarize in defined bullet list format:\n"${selection}"`; break;
-        case 'explain': prompt = `Explain this educational concept simply (Use $$ for block math):\n"${selection}"`; break;
-        case 'continue': prompt = `Continue writing educational content naturally (context: "...${context}").\nUse $$ for block math.\n${mcqInstruction}`; break;
-        case 'convert-to-notes': prompt = `Convert this text into structured study notes with headings and bullets:\n"${selection}"`; break;
-        case 'fix-grammar': prompt = `Fix grammar/spelling:\n"${selection}"`; break;
-        case 'rewrite-tone': prompt = `Rewrite in ${param} tone following educational grammar:\n"${selection}"`; break;
-        case 'generate-mcq':
-          prompt = `Generate ${requestedCount || 5} multiple choice questions based on this text using the '? Question' format:\n"${selection}"`;
-          break;
-        default: prompt = `${action}: "${selection}"`;
-      }
-      return `${baseSystem}\n\n${prompt}`;
-    };
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'summarize':
+      prompt = `
+Summarize the following content in structured bullet format.
+
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'explain':
+      prompt = `
+Explain this concept clearly for students.
+Use structured sections if helpful.
+
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'continue':
+      prompt = `
+Continue writing content naturally.
+Use previous context for coherence.
+
+Previous Context:
+"...${context}"
+
+Continue from here:
+"${selection}"
+`;
+      break;
+
+    case 'convert-to-notes':
+      prompt = `
+Convert this content into structured study notes.
+Use headings and bullet points where appropriate.
+
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'fix-grammar':
+      prompt = `
+Fix grammar and spelling while preserving meaning.
+
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'rewrite-tone':
+      prompt = `
+Rewrite this content in ${param} tone while keeping meaning intact.
+
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'generate-mcq':
+      prompt = `
+Generate multiple choice questions using the EXACT MCQ format defined above.
+
+Text:
+"${selection}"
+`;
+      break;
+
+    case 'write':
+      prompt = `
+Generate structured educational content based on the following instruction.
+Use headings, paragraphs, lists, math, or code if appropriate.
+
+Instruction:
+"${selection}"
+`;
+      break;
+
+    default:
+      prompt = `
+${action}
+
+Text:
+"${selection}"
+`;
+  }
+
+  return `${baseSystem}\n\n${prompt}`;
+};
 
     // 3. Main Handler
     const handleAIRequest = async (action, param) => {
@@ -2380,9 +2532,16 @@ Rules:
       }
 
       if (!selectedText.trim()) {
-        alert("Please select text or text block.");
-        return;
+        if (action === 'write') {
+          selectedText = editor.getText(); // full context
+          mode = 'append';
+          range = { from, to };
+        } else {
+          alert("Please select text or text block.");
+          return;
+        }
       }
+
 
       // UI Start
       aiUI.show();
