@@ -2665,6 +2665,15 @@
         const json = editor.getJSON();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
         document.getElementById('debug-json').textContent = JSON.stringify(json, null, 2);
+
+        // Auto-convert custom blocks (Math, MCQ, Callout) on every update (paste/type)
+        // Debounce slightly to allow transaction to settle
+        if (this.convertTimeout) clearTimeout(this.convertTimeout);
+        this.convertTimeout = setTimeout(() => {
+          if (!editor.isDestroyed) {
+            convertCustomBlocksRobust();
+          }
+        }, 50);
       }
     });
 
@@ -2843,6 +2852,10 @@
     // Robust ConvertCustomBlocks
     // We rewrite the document by replacing text blocks with Nodes
     const convertCustomBlocksRobust = () => {
+      if (editor.isDestroyed) return;
+
+      const { state } = editor;
+      // We need to be careful not to disrupt active composition or cursor if not necessary
       const updates = [];
 
       // 1. Math Block & Single-Node MCQ Detection
@@ -2851,38 +2864,48 @@
           const text = node.textContent.trim();
 
           // Math Block
-          if (text.startsWith('$$') && text.endsWith('$$')) {
+          // Math Block: $$ ... $$
+          // Handle newlines/hardBreaks by stripping them for detection
+          const rawFn = node.textContent.replace(/\n/g, '').trim();
+          if (rawFn.startsWith('$$') && rawFn.endsWith('$$') && rawFn.length > 4) {
+            const mathText = rawFn.slice(2, -2).trim();
             updates.push({
               from: offset,
               to: offset + node.nodeSize,
-              type: 'mathBlock',
-              attrs: { text: text.slice(2, -2).trim() }
+              type: 'mathBlock', // Ensure this matches your schema name
+              attrs: { text: mathText }
             });
             return;
           }
 
           // Callout Block Detection
-          if (text.startsWith('! ')) {
+          if (text.startsWith('! ') || text.startsWith('!info') || text.startsWith('!success') || text.startsWith('!warning') || text.startsWith('!error')) {
             const types = ['info', 'success', 'warning', 'error'];
             let detectedType = 'info';
-            let contentText = text.slice(2).trim();
+            let contentStart = 0;
 
+            // Check for specific types like !success
             for (const t of types) {
-              if (text.startsWith(`!${t} `)) {
+              if (text.startsWith(`!${t}`)) {
                 detectedType = t;
-                contentText = text.slice(t.length + 2).trim();
+                contentStart = t.length + 1; // !success_
                 break;
               }
             }
+
+            // If just '! ', default to info
+            if (text.startsWith('! ')) {
+              detectedType = 'info';
+              contentStart = 2;
+            }
+
+            const contentText = text.slice(contentStart).trim();
 
             updates.push({
               from: offset,
               to: offset + node.nodeSize,
               type: 'callout',
               attrs: { type: detectedType },
-              // We need to create the content manually during mapping if possible,
-              // but convertCustomBlocksRobust uses replaceWith.
-              // We'll wrap the text in a paragraph node inside the callout.
               content: contentText
             });
             return;
