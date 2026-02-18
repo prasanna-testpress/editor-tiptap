@@ -836,6 +836,26 @@
     </div>
   </div>
 
+  <!-- AI Preview Overlay -->
+  <div id="ai-preview-overlay"
+    class="hidden fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-white border border-slate-200 shadow-2xl rounded-xl w-[600px] max-w-[90vw] z-50 flex flex-col overflow-hidden">
+    <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">AI Preview</span>
+      <div class="flex gap-2">
+        <span id="ai-status" class="text-xs text-blue-500 animate-pulse">Generative...</span>
+      </div>
+    </div>
+    <div id="ai-preview-content" class="p-6 max-h-[60vh] overflow-y-auto prose prose-sm">
+      <!-- AI Content Stream -->
+    </div>
+    <div class="p-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+      <button id="ai-reject"
+        class="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Discard</button>
+      <button id="ai-accept"
+        class="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md shadow-sm transition-colors">Accept</button>
+    </div>
+  </div>
+
   <script type="module">
     import { Editor, Node, mergeAttributes, Extension, InputRule } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
 
@@ -871,10 +891,11 @@
     import { common, createLowlight } from 'https://esm.sh/lowlight?bundle';
     import katex from 'https://esm.sh/katex';
     import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.11.5?bundle';
+    import { Markdown } from 'https://esm.sh/tiptap-markdown@0.8.10?bundle';
     import { Plugin } from 'https://esm.sh/prosemirror-state?bundle';
 
     /* --- Constants --- */
-    const GEMINI_API_KEY = ''; // Replace with actual key or env var if possible
+    const GEMINI_API_KEY = 'AIzaSyAUYSYUpEOFZS4V8SmA9_ZlTwSAi4XFW2E'; // Replace with actual key or env var if possible
     const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 
@@ -1719,10 +1740,14 @@
       {
         title: 'AI Actions',
         items: [
+          { title: 'Write/Continue', icon: '➡️', action: editor => handleAIRequest('continue') },
           { title: 'Improve Writing', icon: '✨', action: editor => handleAIRequest('improve') },
           { title: 'Summarize', icon: '📝', action: editor => handleAIRequest('summarize') },
           { title: 'Explain', icon: '🤔', action: editor => handleAIRequest('explain') },
-          { title: 'Continue Writing', icon: '➡️', action: editor => handleAIRequest('continue') },
+          { title: 'Make Notes', icon: '📌', action: editor => handleAIRequest('convert-to-notes') },
+          { title: 'Generate MCQ', icon: '❓', action: editor => handleAIRequest('generate-mcq') },
+          { title: 'Fix Grammar', icon: 'abc', action: editor => handleAIRequest('fix-grammar') },
+          { title: 'Change Tone (Formal)', icon: '👔', action: editor => handleAIRequest('rewrite-tone', 'Formal') },
         ]
       },
       {
@@ -1900,6 +1925,7 @@
         ListItem,
         HardBreak,
         HorizontalRule,
+        Markdown,
         Heading.configure({ levels: [1, 2, 3] }),
         Bold,
         Code,
@@ -1991,122 +2017,285 @@
       );
     }
 
-    /* --- AI Integration --- */
-    const aiMenu = document.getElementById('ai-bubble-menu');
-    const aiLoader = document.getElementById('ai-loader');
-    const aiBtns = document.querySelectorAll('.ai-btn');
+    /* --- Advanced AI Module (Refactored) --- */
 
-    const handleAIRequest = async (action) => {
-      const { state, view } = editor;
-      let { from, to } = state.selection;
-      let selectedText = state.doc.textBetween(from, to, ' ');
-      let range = { from, to };
+    // 1. AI UI System
+    const aiUI = {
+      overlay: document.getElementById('ai-preview-overlay'),
+      content: document.getElementById('ai-preview-content'),
+      status: document.getElementById('ai-status'),
+      acceptBtn: document.getElementById('ai-accept'),
+      rejectBtn: document.getElementById('ai-reject'),
+      resolvePromise: null,
 
-      // Fallback: If no selection, use the text of the current block or previous block
-      if (!selectedText.trim()) {
-        const resolvedPos = state.doc.resolve(from);
-        const parent = resolvedPos.parent;
+      show() {
+        this.overlay.classList.remove('hidden');
+        this.content.innerHTML = '';
+        this.status.textContent = 'Thinking...';
+        this.status.className = 'text-xs text-blue-500 animate-pulse';
+        this.acceptBtn.disabled = true;
+      },
 
-        // If inside a text block, use its content
-        if (parent.isTextblock && parent.textContent.trim()) {
-          selectedText = parent.textContent;
-          range = {
-            from: resolvedPos.start(),
-            to: resolvedPos.end()
-          };
-        } else {
-          // Try previous block if current is empty (e.g. typing '/' on new line)
-          // This is tricky, let's just stick to "Text before cursor" for 'continue'
-          if (action === 'continue') {
-            // Get last 1000 chars
-            selectedText = state.doc.textBetween(Math.max(0, from - 1000), from, ' ');
-            range = { from, to }; // Insert at cursor
-          }
-        }
-      }
+      hide() {
+        this.overlay.classList.add('hidden');
+        this.resolvePromise = null;
+      },
 
-      if (!selectedText.trim()) {
-        alert('Please select text or place cursor near text to use AI.');
-        return;
-      }
+      updatePreview(html) {
+        this.content.innerHTML = html;
+        this.content.scrollTop = this.content.scrollHeight;
+      },
 
-      // Re-query elements to ensure safety
-      // Use global loader for reliability
-      const globalLoader = document.getElementById('loading-overlay');
-      const loaderText = globalLoader?.querySelector('p');
-      const aiLoader = document.getElementById('ai-loader'); // Optional bubble loader
+      setSuccess() {
+        this.status.textContent = 'Generated';
+        this.status.className = 'text-xs text-green-600 font-bold';
+        this.acceptBtn.disabled = false;
+      },
 
-      if (globalLoader) {
-        if (loaderText) loaderText.textContent = 'AI Processing...';
-        globalLoader.classList.add('active');
-      }
-      if (aiLoader) aiLoader.classList.remove('hidden');
+      setError(msg) {
+        this.status.textContent = 'Error';
+        this.status.className = 'text-xs text-red-600 font-bold';
+        this.content.innerHTML = `<p class="text-red-500">${msg}</p>`;
+      },
 
-      // Disable buttons if they exist
-      const aiBtns = document.querySelectorAll('.ai-btn');
-      aiBtns.forEach(btn => btn.disabled = true);
-
-      let prompt = '';
-      switch (action) {
-        case 'improve': prompt = `Rewrite this text to be more professional, clear, and concise:\n\n"${selectedText}"`; break;
-        case 'summarize': prompt = `Summarize this text in one sentence:\n\n"${selectedText}"`; break;
-        case 'explain': prompt = `Explain this text simply:\n\n"${selectedText}"`; break;
-        case 'continue': prompt = `Continue writing naturally from this text (do not repeat it):\n\n"${selectedText}"`; break;
-      }
-
-      try {
-        const response = await fetch(GEMINI_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [{ text: prompt }]
-            }]
-          })
+      async waitForUser() {
+        return new Promise((resolve) => {
+          this.resolvePromise = resolve;
+          this.acceptBtn.onclick = () => resolve(true);
+          this.rejectBtn.onclick = () => resolve(false);
         });
-
-        const data = await response.json();
-
-        if (data.error) {
-          console.error('Gemini Error:', data.error);
-          alert('AI Error: ' + data.error.message);
-          return;
-        }
-
-        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (aiText) {
-          const chain = editor.chain().focus();
-
-          if (action === 'continue') {
-            chain.insertContentAt(range.to, " " + aiText); // Append
-          } else {
-            // chain.replaceWith is not a Tiptap command. Use deleteRange + insertContent
-            chain.deleteRange(range).insertContentAt(range.from, aiText);
-          }
-
-          chain.run();
-        }
-
-      } catch (error) {
-        console.error('Network Error:', error);
-        alert('Failed to connect to AI service.');
-      } finally {
-        // Reset UI
-        if (globalLoader) {
-          globalLoader.classList.remove('active');
-          if (loaderText) loaderText.textContent = 'Uploading...'; // Reset default text
-        }
-        if (aiLoader) aiLoader.classList.add('hidden');
-        aiBtns.forEach(btn => btn.disabled = false);
       }
     };
 
-    // Attach Listeners
-    aiBtns.forEach(btn => {
+    // 2. Prompt Builder
+    const buildPrompt = (action, selection, fullDoc, param = '') => {
+      const baseSystem = `You are an AI writing assistant for a structured educational rich text editor.
+Your output will be parsed into editor blocks automatically.
+You MUST follow the editor grammar strictly.
+
+========================================
+EDITOR MARKDOWN GRAMMAR (MANDATORY)
+========================================
+
+HEADINGS:
+- # Main Title
+- ## Section
+- ### Subsection
+Do not skip heading levels.
+Do not use #### or deeper.
+
+PARAGRAPHS:
+- Short and readable.
+- Maximum 4 lines per paragraph.
+- Never produce one large paragraph.
+
+BULLET LIST:
+- Use "- " only.
+- Do not use "*".
+- Do not mix bullet styles.
+
+NUMBERED LIST:
+1. Step one
+2. Step two
+Use only for sequences or instructions.
+
+CODE BLOCK:
+Use triple backticks with language:
+\`\`\`python
+code here
+\`\`\`
+Only use code blocks when user asks for example code.
+
+MATH BLOCK:
+Use defined LaTeX style.
+
+INLINE MATH:
+Use single dollar: $a^2 + b^2$
+
+GLOBAL RULES:
+- Do NOT say "Here is".
+- Do NOT explain what you are doing.
+- Do NOT add introduction phrases.
+- Do NOT wrap entire response in code block.
+- Do NOT add conversational text.
+- Output only structured educational content.
+`;
+
+      // MCQ Extraction Logic
+      let mcqCount = 5;
+      if (action === 'generate-mcq') {
+        const countMatch = selection.match(/(\d+)\s+mcq/i);
+        if (countMatch) mcqCount = parseInt(countMatch[1]);
+      }
+
+      const context = fullDoc.slice(-3000);
+
+      // MCQ Template
+      if (action === 'generate-mcq') {
+        return `${baseSystem}
+Generate ${mcqCount} multiple choice questions based on this text.
+Return ONLY a JSON Array (no valid markdown, just raw JSON).
+Format:
+[
+  {
+    "question": "...",
+    "options": [
+      { "text": "...", "isCorrect": true },
+      { "text": "...", "isCorrect": false },
+      { "text": "...", "isCorrect": false },
+      { "text": "...", "isCorrect": false }
+    ]
+  }
+]
+Important: Ensure valid JSON. Do not wrap in \`\`\`json blocks.
+Text: "${selection}"`;
+      }
+
+      // Standard Actions
+      let prompt = '';
+      switch (action) {
+        case 'improve': prompt = `Rewrite to be professional, educational, and concise:\n"${selection}"`; break;
+        case 'summarize': prompt = `Summarize in defined bullet list format:\n"${selection}"`; break;
+        case 'explain': prompt = `Explain this educational concept simply:\n"${selection}"`; break;
+        case 'continue': prompt = `Continue writing educational content naturally (context: "...${context}"):\n\nWrite next paragraphs following grammar rules.`; break;
+        case 'convert-to-notes': prompt = `Convert this text into structured study notes with headings and bullets:\n"${selection}"`; break;
+        case 'fix-grammar': prompt = `Fix grammar/spelling:\n"${selection}"`; break;
+        case 'rewrite-tone': prompt = `Rewrite in ${param} tone following educational grammar:\n"${selection}"`; break;
+        default: prompt = `${action}: "${selection}"`;
+      }
+      return `${baseSystem}\n\n${prompt}`;
+    };
+
+    // 3. Main Handler
+    const handleAIRequest = async (action, param) => {
+      const { state } = editor;
+      let { from, to } = state.selection;
+      let selectedText = state.doc.textBetween(from, to, ' ');
+      let range = { from, to };
+      let mode = 'replace';
+
+      // Context Fallback
+      if (!selectedText.trim()) {
+        if (action === 'continue') {
+          selectedText = state.doc.textBetween(Math.max(0, from - 1500), from, ' ');
+          mode = 'append';
+          range = { from, to }; // Insert at cursor
+        } else {
+          const node = state.doc.nodeAt(from) || state.doc.resolve(from).parent;
+          if (node && node.isTextblock) {
+            selectedText = node.textContent;
+            const pos = state.doc.resolve(from);
+            range = { from: pos.start(), to: pos.end() };
+          }
+        }
+      }
+
+      if (!selectedText.trim()) {
+        alert("Please select text or text block.");
+        return;
+      }
+
+      // UI Start
+      aiUI.show();
+
+      try {
+        const prompt = buildPrompt(action, selectedText, editor.getText(), param);
+
+        const res = await fetch(GEMINI_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+
+        let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        // Clean AI Text
+        aiText = aiText.trim();
+        if (aiText.startsWith('```json')) aiText = aiText.replace(/^```json/, '').replace(/```$/, '');
+        if (aiText.startsWith('```')) aiText = aiText.replace(/^```/, '').replace(/```$/, '');
+
+        // Handle Response Type
+        if (action === 'generate-mcq') {
+          let mcqs = [];
+          try {
+            mcqs = JSON.parse(aiText);
+            if (!Array.isArray(mcqs)) mcqs = [mcqs]; // Handle single object return
+          } catch (e) {
+            throw new Error("AI returned invalid JSON for MCQ.");
+          }
+
+          // Render MCQ Preview
+          let previewHTML = mcqs.map((q, i) => `
+                    <div class="mb-4 p-3 border rounded bg-white">
+                        <strong class="block mb-2">${i + 1}. ${q.question}</strong>
+                        <ul class="list-disc pl-5 text-sm text-slate-600">
+                            ${q.options.map(o => `<li class="${o.isCorrect ? 'text-green-600 font-bold' : ''}">${o.text}</li>`).join('')}
+                        </ul>
+                    </div>
+                `).join('');
+
+          aiUI.updatePreview(previewHTML);
+          aiUI.setSuccess();
+
+          const userConfirmed = await aiUI.waitForUser();
+          if (userConfirmed) {
+            // Batch Insert MCQs
+            editor.chain().focus()
+              .deleteRange(range)
+              .command(({ tr, commands }) => {
+                mcqs.forEach(q => {
+                  editor.chain().insertContent({
+                    type: 'mcq',
+                    attrs: {
+                      question: q.question,
+                      options: q.options.map(o => ({ ...o, id: Math.random().toString(36).slice(2) }))
+                    }
+                  }).run();
+                });
+                return true;
+              })
+              .run();
+          }
+
+        } else {
+          // Markdown Text
+          // Simple Preview
+          const html = aiText
+            .replace(/^# (.*$)/gim, '<h1 class="text-lg font-bold">$1</h1>')
+            .replace(/^## (.*$)/gim, '<h2 class="text-md font-bold">$1</h2>')
+            .replace(/\*\*(.*?)\*\*/gim, '<b>$1</b>')
+            .replace(/\n/gim, '<br>');
+
+          aiUI.updatePreview(html);
+          aiUI.setSuccess();
+
+          const userConfirmed = await aiUI.waitForUser();
+          if (userConfirmed) {
+            if (mode === 'append') {
+              editor.chain().focus().insertContentAt(range.to, "\n" + aiText).run();
+            } else {
+              editor.chain().focus().deleteRange(range).insertContentAt(range.from, aiText).run();
+            }
+          }
+        }
+
+      } catch (e) {
+        console.error(e);
+        aiUI.setError(e.message);
+        // Allow user to close error
+        await aiUI.waitForUser();
+      } finally {
+        aiUI.hide();
+      }
+    };
+
+    // Attach to buttons
+    document.querySelectorAll('.ai-btn').forEach(btn => {
       btn.onclick = (e) => {
-        e.preventDefault(); // Prevent losing focus
+        e.preventDefault();
         handleAIRequest(btn.dataset.action);
       };
     });
