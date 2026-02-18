@@ -2154,12 +2154,43 @@
           }
         })
       ],
-      content: `
-          <h1>Premium Editor</h1>
-          <p>This is a polished TipTap editor with <strong>Code highlighting</strong>, <strong>Math</strong> support, and better UI.</p>
-          <pre><code class="language-javascript">console.log('Hello World');</code></pre>
-          <div data-type="callout" class="callout callout-info"><span class="callout-icon">💡</span><div class="callout-content"><p>Try typing <code>/</code> to see the grouped menu.</p></div></div>
-        `,
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Premium Editor' }]
+          },
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'This is a polished TipTap editor with ' },
+              { type: 'text', marks: [{ type: 'bold' }], text: 'Code highlighting' },
+              { type: 'text', text: ', ' },
+              { type: 'text', marks: [{ type: 'bold' }], text: 'Math' },
+              { type: 'text', text: ' support, and better UI.' }
+            ]
+          },
+          {
+            type: 'codeBlock',
+            attrs: { language: 'javascript' },
+            content: [{ type: 'text', text: "console.log('Hello World');" }]
+          },
+          {
+            type: 'callout',
+            attrs: { type: 'info' },
+            content: [{
+              type: 'paragraph',
+              content: [
+                { type: 'text', text: 'Try typing ' },
+                { type: 'text', marks: [{ type: 'code' }], text: '/' },
+                { type: 'text', text: ' to see the grouped menu.' }
+              ]
+            }]
+          }
+        ]
+      },
       editorProps: {
         attributes: {
           class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl focus:outline-none',
