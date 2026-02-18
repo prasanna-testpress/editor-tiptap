@@ -834,22 +834,7 @@
       }
     });
 
-    // 4. DateTime
-    const DateTime = Node.create({
-      name: 'datetime',
-      group: 'inline',
-      inline: true,
-      atom: true,
-      addAttributes() { return { value: { default: null }, format: { default: 'date' } } },
-      renderHTML({ HTMLAttributes }) {
-        const date = new Date(HTMLAttributes.value || Date.now());
-        let text = date.toLocaleDateString();
-        if (HTMLAttributes.format === 'time') text = date.toLocaleTimeString();
-        if (HTMLAttributes.format === 'datetime') text = date.toLocaleString();
 
-        return ['span', { class: 'bg-gray-100 px-1.5 py-0.5 rounded text-sm text-gray-600 font-mono' }, text];
-      }
-    });
 
     // 5. Custom Code Block with Selector
     const CustomCodeBlock = CodeBlockLowlight.extend({
@@ -948,7 +933,9 @@
       {
         title: 'Utilities',
         items: [
-          { title: 'Date', icon: '📅', action: editor => editor.chain().focus().insertContent({ type: 'datetime', attrs: { value: new Date().toISOString(), format: 'date' } }).run() },
+          { title: 'Date', icon: '📅', action: editor => editor.chain().focus().insertContent(new Date().toLocaleDateString()).run() },
+          { title: 'Time', icon: '⏰', action: editor => editor.chain().focus().insertContent(new Date().toLocaleTimeString()).run() },
+          { title: 'Date & Time', icon: '📆', action: editor => editor.chain().focus().insertContent(new Date().toLocaleString()).run() },
           { title: 'Task List', icon: '☑️', action: editor => editor.chain().focus().toggleTaskList().run() },
           { title: 'Divider', icon: '—', action: editor => editor.chain().focus().setHorizontalRule().run() },
         ]
@@ -1115,7 +1102,7 @@
         MathBlock,
         Callout,
         PageBreak,
-        DateTime,
+        // DateTime,
         SlashCommand,
         BubbleMenu.configure({
           element: document.querySelector('#table-bubble-menu'),
