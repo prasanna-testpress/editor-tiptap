@@ -1066,6 +1066,8 @@
         },
 
         updatePreview(html) {
+          // Use 'pre-line' whitespace style to respect line breaks from the raw text/html
+          this.content.style.whiteSpace = 'pre-wrap';
           this.content.innerHTML = html;
           this.content.scrollTop = this.content.scrollHeight;
         },
@@ -3040,17 +3042,10 @@ Text:
 
           if (!aiText) throw new Error('No response from AI');
 
-          const previewHTML = window.marked ? window.marked.parse(aiText) : aiText; // Assuming marked is loaded via Tiptap Markdown or simple script? 
-          // We don't have 'marked' global. We can use simplified preview or just text.
-          // Actually, Tiptap Markdown extension handles markdown.
-          // For the preview, let's just show text or basic HTML if we had a parser.
-          // The original code used `marked.parse` but we didn't see `marked` imported. 
-          // Ah, `import { Markdown }` from tiptap-markdown doesn't expose marked globally.
-          // Let's just assume text is okay or do simple replace for preview.
-          // Wait, looking at original code, it might have assumed 'marked' was available or I missed an import.
-          // Let's just use textContent for safety in preview, or simple conversion.
+          // Using simple line breaks for preview to match editor feel for raw markdown
+          const previewHTML = aiText.replace(/\n/g, '<br>');
 
-          UI.aiUI.updatePreview(previewHTML); // Using text as HTML might be risky if not parsed, but safe from AI?
+          UI.aiUI.updatePreview(previewHTML);
 
           UI.aiUI.setSuccess();
           const userConfirmed = await UI.aiUI.waitForUser();
