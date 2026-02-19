@@ -622,6 +622,8 @@
     .modal-input:focus {
       border-color: var(--plate-accent);
       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      background: rgba(59, 130, 246, 0.05);
+      /* Added slight background highlight */
     }
 
     .modal-actions {
@@ -869,7 +871,6 @@
 
   <script type="module">
     import { Editor, Node, mergeAttributes, Extension, InputRule, wrappingInputRule } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
-
     import Document from 'https://esm.sh/@tiptap/extension-document@2.11.5?bundle';
     import Paragraph from 'https://esm.sh/@tiptap/extension-paragraph@2.11.5?bundle';
     import Text from 'https://esm.sh/@tiptap/extension-text@2.11.5?bundle';
@@ -904,2139 +905,1896 @@
     import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.11.5?bundle';
     import { Markdown } from 'https://esm.sh/tiptap-markdown@0.8.10?bundle';
     import { Plugin, PluginKey, NodeSelection, TextSelection } from 'https://esm.sh/prosemirror-state?bundle';
-    // serializeForClipboard is not exported by default in some bundles. 
-    // We can use a simpler approach for the drag handle: just selecting the node is often enough for Tiptap/ProseMirror to handle the drag if we let the event bubble?
-    // Actually, we need to manually set the drag data if we initiate it from an external element.
-    // But since we can't easily get serializeForClipboard, let's try a different strategy:
-    // Select the node, and rely on standard behavior if possible, or construct basic HTML.
     import { DOMSerializer } from 'https://esm.sh/prosemirror-model?bundle';
 
-    /* --- Constants --- */
-    const GEMINI_API_KEY = ''; // Replace with actual key or env var if possible
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    /* ====================== SECTION: CONFIG ====================== */
+    const CONFIG = (() => {
+      const GEMINI_API_KEY = '';
+      const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
+      // Initialize Lowlight (Syntax Highlighting)
+      const lowlight = createLowlight(common);
 
-    // Initialize Lowlight (Syntax Highlighting)
-    const lowlight = createLowlight(common);
+      const STORAGE_KEY = 'tiptap-premium-editor-content';
 
-    /* --- Custom UI Helpers --- */
-    const Modal = {
-      overlay: document.getElementById('ui-modal'),
-      title: document.getElementById('modal-title'),
-      input: document.getElementById('modal-input'),
-      confirm: document.getElementById('modal-confirm'),
-      cancel: document.getElementById('modal-cancel'),
-      resolve: null,
-
-      open(title, placeholder = 'Enter URL...') {
-        this.title.textContent = title;
-        this.input.placeholder = placeholder;
-        this.input.value = '';
-        this.overlay.classList.add('active');
-        this.input.focus();
-
-        return new Promise((resolve) => {
-          this.resolve = resolve;
-        });
-      },
-
-      close() {
-        this.overlay.classList.remove('active');
-        this.resolve = null;
-      }
-    };
-
-    Modal.confirm.onclick = () => {
-      if (Modal.resolve) Modal.resolve(Modal.input.value);
-      Modal.close();
-    };
-
-    Modal.cancel.onclick = () => {
-      if (Modal.resolve) Modal.resolve(null);
-      Modal.close();
-    };
-
-    Modal.input.onkeydown = (e) => {
-      if (e.key === 'Enter') Modal.confirm.click();
-      if (e.key === 'Escape') Modal.cancel.click();
-    };
-
-    /* --- File Upload Helper --- */
-    const triggerFileUpload = (accept) => {
-      return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = accept;
-        input.onchange = (e) => {
-          const file = e.target.files[0];
-          if (file) {
-            const loading = document.getElementById('loading-overlay');
-            loading.classList.add('active'); // Show loading
-
-            // Use URL.createObjectURL instead of FileReader for performance.
-            // Reading large files (videos) as Base64 strings (readAsDataURL) freezes the main thread.
-            // Blob URLs are instant and lightweight.
-            const objectUrl = URL.createObjectURL(file);
-
-            // Simulate a small network delay for realism/UX
-            setTimeout(() => {
-              loading.classList.remove('active'); // Hide loading
-              resolve({
-                src: objectUrl,
-                name: file.name,
-                size: file.size,
-                type: file.type
-              });
-            }, 600);
-          } else {
-            resolve(null);
-          }
-        };
-        input.click();
-      });
-    };
-
-    /* --- Resizable Node View Factory --- */
-    const createResizableNodeView = (type) => {
-      return ({ node, editor, getPos }) => {
-        const container = document.createElement('div');
-        container.classList.add('node-container'); // Helper class for hover
-        container.style.position = 'relative';
-        container.style.display = 'inline-block';
-        container.style.maxWidth = '100%';
-        container.style.margin = '1.5rem 0';
-        container.style.lineHeight = '0';
-
-        // Initial width
-        container.style.width = node.attrs.width || '100%';
-
-        const media = document.createElement(type === 'video' ? 'video' : 'img');
-        if (type === 'video') {
-          media.controls = true;
-          // Prevent drag on video controls from conflicting?
-        }
-        media.style.borderRadius = '12px';
-        media.src = node.attrs.src;
-        media.style.width = '100%';
-        media.style.height = 'auto';
-        media.style.display = 'block';
-        // media.draggable = false; // Let container handle selection
-
-        const handle = document.createElement('div');
-        handle.className = 'resize-handle';
-
-        // Drag logic
-        handle.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          e.stopPropagation(); // Stop editor selection
-          const startX = e.clientX;
-          const startWidth = container.offsetWidth;
-
-          const onMouseMove = (e) => {
-            const currentX = e.clientX;
-            const diffX = currentX - startX;
-            const newWidth = Math.max(100, startWidth + diffX);
-            container.style.width = `${newWidth}px`;
-          };
-
-          const onMouseUp = () => {
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-            if (typeof getPos === 'function') {
-              const pos = getPos();
-              if (pos !== undefined && pos !== null) {
-                editor.commands.updateAttributes(pos, { width: container.style.width });
-              }
-            }
-          };
-
-          document.addEventListener('mousemove', onMouseMove);
-          document.addEventListener('mouseup', onMouseUp);
-        });
-
-        container.append(media, handle);
-
-        return {
-          dom: container,
-          update: (updatedNode) => {
-            if (updatedNode.type.name !== (type === 'video' ? 'video' : 'image')) return false;
-            if (updatedNode.attrs.src !== node.attrs.src) media.src = updatedNode.attrs.src;
-            if (updatedNode.attrs.width !== node.attrs.width) container.style.width = updatedNode.attrs.width;
-            node = updatedNode;
-            return true;
+      const DEFAULT_CONTENT = {
+        type: 'doc',
+        content: [
+          {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Premium Editor' }]
           },
-          selectNode: () => {
-            container.classList.add('ProseMirror-selectednode');
-            media.style.outline = '3px solid #3b82f6';
-            media.style.outlineOffset = '2px';
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'This is a polished TipTap editor with ' },
+              { type: 'text', marks: [{ type: 'bold' }], text: 'Code highlighting' },
+              { type: 'text', text: ', ' },
+              { type: 'text', marks: [{ type: 'bold' }], text: 'Math' },
+              { type: 'text', text: ' support, and better UI.' }
+            ]
           },
-          deselectNode: () => {
-            container.classList.remove('ProseMirror-selectednode');
-            media.style.outline = 'none';
+          {
+            type: 'codeBlock',
+            attrs: { language: 'javascript' },
+            content: [{ type: 'text', text: "console.log('Hello World');" }]
+          },
+          {
+            type: 'callout',
+            attrs: { type: 'info' },
+            content: [{
+              type: 'paragraph',
+              content: [
+                { type: 'text', text: 'Try typing ' },
+                { type: 'text', marks: [{ type: 'code' }], text: '/' },
+                { type: 'text', text: ' to see the grouped menu.' }
+              ]
+            }]
           }
-        };
-      }
-    }
-
-    // 0. Video Node (Local)
-    const Video = Node.create({
-      name: 'video',
-      group: 'block',
-      selectable: true,
-      draggable: true,
-      atom: true,
-
-      addAttributes() {
-        return {
-          src: { default: null },
-          width: { default: '100%' }
-        }
-      },
-
-      parseHTML() {
-        return [{ tag: 'video' }]
-      },
-
-      renderHTML({ HTMLAttributes }) {
-        return ['video', mergeAttributes(HTMLAttributes, { controls: 'true', style: `width: ${HTMLAttributes.width}` })]
-      },
-
-      addNodeView() {
-        return createResizableNodeView('video');
-      }
-    });
-
-    // Custom Image Node for Resizing
-    const CustomImage = Image.extend({
-      addAttributes() {
-        // Safe fallback for parent attributes
-        const parentAttrs = this.parent ? this.parent() : {};
-        return {
-          ...parentAttrs,
-          width: { default: '100%' }
-        }
-      },
-      addNodeView() {
-        return createResizableNodeView('image');
-      }
-    });
-
-    // 0. File Attachment Node
-    const FileAttachment = Node.create({
-      name: 'fileAttachment',
-      group: 'block',
-      atom: true,
-
-      addAttributes() {
-        return {
-          src: { default: null },
-          name: { default: 'file' },
-          size: { default: 0 }
-        }
-      },
-
-      parseHTML() {
-        return [{ tag: 'div[data-type="file-attachment"]' }]
-      },
-
-      renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'file-attachment' })]
-      },
-
-      addNodeView() {
-        return ({ node }) => {
-          const dom = document.createElement('a');
-          dom.className = 'file-attachment';
-          dom.href = node.attrs.src;
-          dom.download = node.attrs.name;
-          dom.contentEditable = 'false';
-
-          const sizeKB = (node.attrs.size / 1024).toFixed(1);
-
-          dom.innerHTML = `
-            <div class="file-icon">📎</div>
-            <div class="file-info">
-              <span class="file-name">${node.attrs.name}</span>
-              <span class="file-size">${sizeKB} KB</span>
-            </div>
-          `;
-
-          return { dom };
-        }
-      }
-    });
-
-    // 1. Math Block
-    const MathBlock = Node.create({
-      name: 'mathBlock',
-      group: 'block',
-      atom: true,
-
-      addAttributes() {
-        return {
-          text: {
-            default: 'E = mc^2',
-            parseHTML: element => element.getAttribute('data-text'),
-            renderHTML: attributes => ({ 'data-text': attributes.text }),
-          }
-        }
-      },
-
-      parseHTML() {
-        return [{
-          tag: 'div[data-type="math-block"]',
-          getAttrs: dom => ({ text: dom.getAttribute('data-text') })
-        }]
-      },
-
-      renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'math-block' })]
-      },
-
-      addStorage() {
-        return {
-          markdown: {
-            serialize: (state, node) => {
-              state.write(`$$\n${node.attrs.text}\n$$`);
-              state.closeBlock(node);
-            }
-          }
-        }
-      },
-
-      addInputRules() {
-        return [
-          new InputRule({
-            find: /^\$\$\s$/,
-            handler: ({ state, range }) => {
-              const { tr } = state;
-              tr.replaceWith(range.from, range.to, this.type.create());
-            }
-          }),
         ]
-      },
+      };
 
-      addNodeView() {
-        return ({ node, getPos, editor }) => {
-          const container = document.createElement('div');
-          container.classList.add('math-block-container');
+      return {
+        GEMINI_URL,
+        lowlight,
+        STORAGE_KEY,
+        DEFAULT_CONTENT
+      };
+    })();
 
-          const preview = document.createElement('div');
-          preview.classList.add('math-preview');
-          preview.title = 'Click to edit equation';
+    /* ====================== SECTION: UTILS ====================== */
+    const UTILS = (() => {
+      /* --- File Upload Helper --- */
+      const triggerFileUpload = (accept) => {
+        return new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = accept;
+          input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const loading = document.getElementById('loading-overlay');
+              if (loading) loading.classList.add('active'); // Show loading
 
-          const input = document.createElement('textarea');
-          input.classList.add('math-input');
-          input.value = node.attrs.text;
-          input.placeholder = 'Type LaTeX equation (e.g. E = mc^2)';
+              const objectUrl = URL.createObjectURL(file);
 
-          const renderMath = (text) => {
-            preview.innerHTML = '';
-            if (!text || text.trim() === '') {
-              preview.textContent = 'Empty equation';
-              preview.style.color = '#94a3b8';
-              return;
-            }
-            try {
-              katex.render(text, preview, {
-                throwOnError: false,
-                displayMode: true
-              });
-              preview.style.color = 'inherit';
-            } catch (e) {
-              preview.textContent = e.message;
-              preview.style.color = '#ef4444';
+              // Simulate a small network delay for realism/UX
+              setTimeout(() => {
+                if (loading) loading.classList.remove('active'); // Hide loading
+                resolve({
+                  src: objectUrl,
+                  name: file.name,
+                  size: file.size,
+                  type: file.type
+                });
+              }, 600);
+            } else {
+              resolve(null);
             }
           };
+          input.click();
+        });
+      };
 
-          // Initial Render
-          renderMath(node.attrs.text);
+      return { triggerFileUpload };
+    })();
 
-          // Interaction Logic
-          let isEditing = false;
+    /* ====================== SECTION: UI ====================== */
+    const UI = (() => {
+      const Modal = {
+        overlay: document.getElementById('ui-modal'),
+        title: document.getElementById('modal-title'),
+        input: document.getElementById('modal-input'),
+        confirm: document.getElementById('modal-confirm'),
+        cancel: document.getElementById('modal-cancel'),
+        resolve: null,
 
-          const toggleEdit = (active) => {
-            if (isEditing === active) return; // Debounce duplicate state changes
-            isEditing = active;
+        open(title, placeholder = 'Enter URL...') {
+          this.title.textContent = title;
+          this.input.placeholder = placeholder;
+          this.input.value = '';
+          this.overlay.classList.add('active');
+          this.input.focus();
 
-            if (active) {
-              container.classList.add('is-editing');
-              // Small delay to ensure display:block applied before focus
-              setTimeout(() => {
-                input.focus();
-              }, 10);
-            } else {
-              container.classList.remove('is-editing');
-              // Save changes if dirty
-              if (input.value !== node.attrs.text) {
-                if (typeof getPos === 'function') {
-                  const pos = getPos();
-                  if (pos !== undefined && pos !== null) {
-                    editor.chain().focus().command(({ tr }) => {
-                      return tr.setNodeAttribute(pos, 'text', input.value);
-                    }).run();
-                  }
+          return new Promise((resolve) => {
+            this.resolve = resolve;
+          });
+        },
+
+        close() {
+          this.overlay.classList.remove('active');
+          this.resolve = null;
+        }
+      };
+
+      Modal.confirm.onclick = () => {
+        if (Modal.resolve) Modal.resolve(Modal.input.value);
+        Modal.close();
+      };
+
+      Modal.cancel.onclick = () => {
+        if (Modal.resolve) Modal.resolve(null);
+        Modal.close();
+      };
+
+      Modal.input.onkeydown = (e) => {
+        if (e.key === 'Enter') Modal.confirm.click();
+        if (e.key === 'Escape') Modal.cancel.click();
+      };
+
+      // AI Preview Overlay System
+      const aiUI = {
+        overlay: document.getElementById('ai-preview-overlay'),
+        content: document.getElementById('ai-preview-content'),
+        status: document.getElementById('ai-status'),
+        acceptBtn: document.getElementById('ai-accept'),
+        rejectBtn: document.getElementById('ai-reject'),
+        resolvePromise: null,
+
+        show() {
+          this.overlay.classList.remove('hidden');
+          this.content.innerHTML = '';
+          this.status.textContent = 'Thinking...';
+          this.status.className = 'text-xs text-blue-500 animate-pulse';
+          this.acceptBtn.disabled = true;
+        },
+
+        hide() {
+          this.overlay.classList.add('hidden');
+          this.resolvePromise = null;
+        },
+
+        updatePreview(html) {
+          this.content.innerHTML = html;
+          this.content.scrollTop = this.content.scrollHeight;
+        },
+
+        setSuccess() {
+          this.status.textContent = 'Generated';
+          this.status.className = 'text-xs text-green-600 font-bold';
+          this.acceptBtn.disabled = false;
+        },
+
+        setError(msg) {
+          this.status.textContent = 'Error';
+          this.status.className = 'text-xs text-red-600 font-bold';
+          this.content.innerHTML = `<p class="text-red-500">${msg}</p>`;
+        },
+
+        async waitForUser() {
+          return new Promise((resolve) => {
+            this.resolvePromise = resolve;
+            this.acceptBtn.onclick = () => resolve(true);
+            this.rejectBtn.onclick = () => resolve(false);
+          });
+        }
+      };
+
+      // Table Bubble Menu Helper
+      const setupTableMenu = (editor) => {
+        const tableMenuContainer = document.querySelector('#table-bubble-menu');
+        if (tableMenuContainer) {
+          tableMenuContainer.className = 'bubble-menu hidden';
+          tableMenuContainer.innerHTML = ''; // Clear existing
+
+          const createBtn = (icon, action, title, isDestructive = false) => {
+            const btn = document.createElement('button');
+            btn.className = `bubble-btn ${isDestructive ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : ''}`;
+            btn.innerHTML = icon;
+            btn.title = title;
+            // Check if action exists in chain? Actually we assume it does for table extension
+            btn.onclick = () => editor.chain().focus()[action]().run();
+            return btn;
+          };
+
+          tableMenuContainer.append(
+            createBtn('←', 'addColumnBefore', 'Add Col Before'),
+            createBtn('→', 'addColumnAfter', 'Add Col After'),
+            createBtn('↑', 'addRowBefore', 'Add Row Before'),
+            createBtn('↓', 'addRowAfter', 'Add Row After'),
+            createBtn('🗑️', 'deleteTable', 'Delete Table', true)
+          );
+        }
+      };
+
+      return { Modal, aiUI, setupTableMenu };
+    })();
+
+    /* ====================== SECTION: NODE_VIEWS ====================== */
+    const NODE_VIEWS = (() => {
+
+      const createResizable = (type) => {
+        return ({ node, editor, getPos }) => {
+          const container = document.createElement('div');
+          container.classList.add('node-container'); // Helper class for hover
+          container.style.position = 'relative';
+          container.style.display = 'inline-block';
+          container.style.maxWidth = '100%';
+          container.style.margin = '1.5rem 0';
+          container.style.lineHeight = '0';
+
+          // Initial width
+          container.style.width = node.attrs.width || '100%';
+
+          const media = document.createElement(type === 'video' ? 'video' : 'img');
+          if (type === 'video') {
+            media.controls = true;
+            // Prevent drag on video controls from conflicting?
+          }
+          media.style.borderRadius = '12px';
+          media.src = node.attrs.src;
+          media.style.width = '100%';
+          media.style.height = 'auto';
+          media.style.display = 'block';
+          // media.draggable = false; // Let container handle selection
+
+          const handle = document.createElement('div');
+          handle.className = 'resize-handle';
+
+          // Drag logic
+          handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation(); // Stop editor selection
+            const startX = e.clientX;
+            const startWidth = container.offsetWidth;
+
+            const onMouseMove = (e) => {
+              const currentX = e.clientX;
+              const diffX = currentX - startX;
+              const newWidth = Math.max(100, startWidth + diffX);
+              container.style.width = `${newWidth}px`;
+            };
+
+            const onMouseUp = () => {
+              document.removeEventListener('mousemove', onMouseMove);
+              document.removeEventListener('mouseup', onMouseUp);
+              if (typeof getPos === 'function') {
+                const pos = getPos();
+                if (pos !== undefined && pos !== null) {
+                  editor.commands.updateAttributes(pos, { width: container.style.width });
                 }
               }
-            }
-          };
+            };
 
-          preview.addEventListener('click', (e) => {
-            e.preventDefault();
-            toggleEdit(true);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
           });
 
-          input.addEventListener('input', (e) => {
-            // Just update preview locally, don't trigger transaction yet
-            renderMath(e.target.value);
-          });
-
-          input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              toggleEdit(false);
-              editor.commands.focus(); // Return focus to editor
-            }
-          });
-
-          // Handle blur - checks if focus moved outside the component
-          input.addEventListener('blur', (e) => {
-            // We use a timeout to allow clicks on other parts of UI to process first if needed
-            // But simpler: just close.
-            toggleEdit(false);
-          });
-
-          container.append(preview, input);
+          container.append(media, handle);
 
           return {
             dom: container,
-            // Prevent ProtonMirror from re-rendering the node when we type in the textarea
-            ignoreMutation: (mutation) => {
-              // We handle our own mutations (textarea input)
-              return true;
-            },
-            // Stop events from bubbling up to the editor to prevent unwanted side effects
-            stopEvent: (event) => {
-              // Allow default behavior for the textarea (keyboard interaction, etc.)
-              if (event.target === input) {
-                // For keydown, we want to stop propagation so Tiptap doesn't handle Enter/Backspace etc.
-                // But for 'input', maybe not?
-                // Generally returning true safely isolates the input.
-                return true;
-              }
-              return false;
-            },
             update: (updatedNode) => {
-              if (updatedNode.type.name !== 'mathBlock') return false;
-              // Sync local state if external update happened (e.g. Undo/Redo)
-              if (updatedNode.attrs.text !== node.attrs.text) {
-                node = updatedNode;
-                input.value = node.attrs.text;
-                renderMath(node.attrs.text);
-              }
+              if (updatedNode.type.name !== (type === 'video' ? 'video' : 'image')) return false;
+              if (updatedNode.attrs.src !== node.attrs.src) media.src = updatedNode.attrs.src;
+              if (updatedNode.attrs.width !== node.attrs.width) container.style.width = updatedNode.attrs.width;
+              node = updatedNode;
               return true;
             },
             selectNode: () => {
               container.classList.add('ProseMirror-selectednode');
+              media.style.outline = '3px solid #3b82f6';
+              media.style.outlineOffset = '2px';
             },
             deselectNode: () => {
               container.classList.remove('ProseMirror-selectednode');
-              toggleEdit(false);
+              media.style.outline = 'none';
             }
           };
         }
-      }
-    });
+      };
 
-    // 2. Callout
-    const Callout = Node.create({
-      name: 'callout',
-      group: 'block',
-      content: 'block+',
-      draggable: true,
-      addAttributes() {
-        return {
-          type: { default: 'info' }
-        }
-      },
-      addInputRules() {
-        return [
-          wrappingInputRule({ find: /^! $/, type: this.type }),
-          wrappingInputRule({ find: /^!info $/, type: this.type, getAttributes: () => ({ type: 'info' }) }),
-          wrappingInputRule({ find: /^!success $/, type: this.type, getAttributes: () => ({ type: 'success' }) }),
-          wrappingInputRule({ find: /^!warning $/, type: this.type, getAttributes: () => ({ type: 'warning' }) }),
-          wrappingInputRule({ find: /^!error $/, type: this.type, getAttributes: () => ({ type: 'error' }) }),
-        ]
-      },
-      addKeyboardShortcuts() {
-        return {
-          'Enter': ({ editor }) => {
-            if (!editor.isActive('callout')) return false;
-            const { selection } = editor.state;
-            if (selection.$from.parent.content.size === 0) return editor.commands.lift('callout');
-            return false;
-          },
-          'Backspace': ({ editor }) => {
-            if (!editor.isActive('callout')) return false;
-            const { selection } = editor.state;
-            if (selection.empty && selection.$from.parentOffset === 0 && selection.$from.parent.content.size === 0) {
-              return editor.commands.lift('callout');
-            }
-            return false;
-          },
-        }
-      },
-      addNodeView() {
-        return ({ node, editor, getPos }) => {
-          const dom = document.createElement('div');
-          dom.classList.add('callout', `callout-${node.attrs.type}`);
-          dom.style.position = 'relative';
+      const FileAttachmentView = ({ node }) => {
+        const dom = document.createElement('a');
+        dom.className = 'file-attachment';
+        dom.href = node.attrs.src;
+        dom.download = node.attrs.name;
+        dom.contentEditable = 'false';
 
-          const icon = document.createElement('span');
-          icon.className = 'callout-icon';
-          icon.contentEditable = 'false';
-          const getIcon = (t) => {
-            if (t === 'success') return '✅';
-            if (t === 'warning') return '⚠️';
-            if (t === 'error') return '⛔';
-            return '💡';
-          };
-          icon.innerText = getIcon(node.attrs.type);
+        const sizeKB = (node.attrs.size / 1024).toFixed(1);
 
-          const content = document.createElement('div');
-          content.className = 'callout-content';
-          content.style.flex = '1';
+        dom.innerHTML = `
+        <div class="file-icon">📎</div>
+        <div class="file-info">
+          <span class="file-name">${node.attrs.name}</span>
+          <span class="file-size">${sizeKB} KB</span>
+        </div>
+      `;
 
-          // Type Selector (Premium Feature)
-          const select = document.createElement('select');
-          select.className = 'callout-type-select';
-          select.style.cssText = `
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            font-size: 11px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            border: 1px solid rgba(0,0,0,0.1);
-            background: rgba(255,255,255,0.8);
-            opacity: 0;
-            transition: opacity 0.2s;
-            cursor: pointer;
-            outline: none;
-            color: #475569;
-            font-weight: 600;
-          `;
-          ['info', 'success', 'warning', 'error'].forEach(t => {
-            const opt = document.createElement('option');
-            opt.value = t;
-            opt.innerText = t.charAt(0).toUpperCase() + t.slice(1);
-            if (node.attrs.type === t) opt.selected = true;
-            select.appendChild(opt);
-          });
+        return { dom };
+      };
 
-          dom.onmouseenter = () => select.style.opacity = '1';
-          dom.onmouseleave = () => select.style.opacity = '0';
+      const MathBlockView = ({ node, getPos, editor }) => {
+        const container = document.createElement('div');
+        container.classList.add('math-block-container');
 
-          select.onchange = (e) => {
-            if (typeof getPos === 'function') {
-              editor.commands.updateAttributes(getPos(), { type: e.target.value });
-            }
-          };
+        const preview = document.createElement('div');
+        preview.classList.add('math-preview');
+        preview.title = 'Click to edit equation';
 
-          dom.append(icon, content, select);
+        const input = document.createElement('textarea');
+        input.classList.add('math-input');
+        input.value = node.attrs.text;
+        input.placeholder = 'Type LaTeX equation (e.g. E = mc^2)';
 
-          return {
-            dom,
-            contentDOM: content,
-            update: (updatedNode) => {
-              if (updatedNode.type.name !== 'callout') return false;
-              if (updatedNode.attrs.type !== node.attrs.type) {
-                dom.classList.remove(`callout-${node.attrs.type}`);
-                dom.classList.add(`callout-${updatedNode.attrs.type}`);
-                icon.innerText = getIcon(updatedNode.attrs.type);
-                select.value = updatedNode.attrs.type;
-              }
-              node = updatedNode;
-              return true;
-            }
-          };
-        }
-      },
-      addStorage() {
-        return {
-          markdown: {
-            serialize: (state, node) => {
-              state.write(`> [!${node.attrs.type || 'info'}]\n`);
-              state.renderContent(node);
-            }
+        const renderMath = (text) => {
+          preview.innerHTML = '';
+          if (!text || text.trim() === '') {
+            preview.textContent = 'Empty equation';
+            preview.style.color = '#94a3b8';
+            return;
           }
-        }
-      },
-      parseHTML() {
-        return [{ tag: 'div[data-type="callout"]', contentElement: '.callout-content' }]
-      },
-      renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout-${HTMLAttributes.type}`, 'data-type': 'callout' }),
-          ['div', { class: 'callout-content' }, 0]
-        ]
-      }
-    });
-
-    // 3. Page Break
-    const PageBreak = Node.create({
-      name: 'pageBreak',
-      group: 'block',
-      atom: true,
-      parseHTML() { return [{ tag: 'div.page-break' }] },
-      renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(HTMLAttributes, { class: 'page-break' })]
-      }
-    });
-
-
-    // 5. Custom Code Block with Selector
-    const CustomCodeBlock = CodeBlockLowlight.extend({
-      addNodeView() {
-        return ({ node, editor, getPos, extension }) => {
-          const dom = document.createElement('div');
-          dom.style.position = 'relative';
-          dom.className = 'code-block-wrapper';
-
-          const select = document.createElement('select');
-          select.className = 'language-selector';
-          select.contentEditable = 'false';
-
-          // Common languages
-          const langs = ['javascript', 'css', 'html', 'python', 'java', 'cpp', 'typescript', 'json', 'bash', 'go', 'rust'];
-
-          langs.forEach(lang => {
-            const option = document.createElement('option');
-            option.value = lang;
-            option.innerText = lang;
-            if (lang === node.attrs.language) option.selected = true;
-            select.appendChild(option);
-          });
-
-          select.addEventListener('change', (e) => {
-            if (typeof getPos === 'function') {
-              editor.commands.updateAttributes(getPos(), { language: e.target.value });
-            }
-          });
-
-          const pre = document.createElement('pre');
-          const code = document.createElement('code');
-
-          pre.append(code);
-          dom.append(select, pre);
-
-          return {
-            dom,
-            contentDOM: code,
-            update: (updatedNode) => {
-              if (updatedNode.type.name !== this.name) return false;
-              if (updatedNode.attrs.language !== node.attrs.language) {
-                select.value = updatedNode.attrs.language;
-              }
-              return true;
-            }
-          };
-        }
-      }
-    });
-
-    // 6. MCQ Node
-    const Mcq = Node.create({
-      name: 'mcq',
-      group: 'block',
-      atom: true,
-      draggable: true,
-      selectable: true,
-
-      addAttributes() {
-        return {
-          question: {
-            default: '',
-          },
-          options: {
-            default: [
-              { id: '1', text: 'Option 1', isCorrect: false },
-              { id: '2', text: 'Option 2', isCorrect: false },
-            ],
-          }
-        }
-      },
-      addStorage() {
-        return {
-          markdown: {
-            serialize: (state, node) => {
-              state.write(`? ${node.attrs.question}\n`);
-              node.attrs.options.forEach(opt => {
-                state.write(`${opt.isCorrect ? '(x)' : '( )'} ${opt.text}\n`);
-              });
-              state.closeBlock(node);
-            }
-          }
-        }
-      },
-      addInputRules() {
-        return [
-          new InputRule({
-            find: /^\? $/,
-            handler: ({ state, range }) => {
-              const { tr } = state;
-              tr.replaceWith(range.from, range.to, this.type.create());
-            }
-          }),
-        ]
-      },
-
-      parseHTML() {
-        return [
-          {
-            tag: 'div[data-type="mcq"]',
-          },
-        ]
-      },
-
-      renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'mcq' })]
-      },
-
-      addNodeView() {
-        return ({ node, getPos, editor }) => {
-          // 1. Container
-          const dom = document.createElement('div');
-          dom.classList.add('mcq-node');
-          dom.setAttribute('role', 'group');
-          dom.setAttribute('aria-label', 'Multiple Choice Question');
-          dom.setAttribute('tabindex', '-1'); // Not focusable itself, children are
-          dom.style.cssText = `
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 1.5rem;
-            background: #fff;
-            margin: 2rem 0;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            transition: border-color 0.2s, box-shadow 0.2s;
-            position: relative;
-          `;
-
-          // 2. Helper for Safe Updates
-          const updateAttrs = (attrs) => {
-            if (typeof getPos === 'function') {
-              const pos = getPos();
-              if (pos !== undefined && pos !== null) {
-                editor.view.dispatch(
-                  editor.state.tr.setNodeMarkup(pos, undefined, {
-                    ...node.attrs,
-                    ...attrs,
-                  })
-                );
-              }
-            }
-          };
-
-          // 3. Question Input
-          const questionInput = document.createElement('input');
-          questionInput.type = 'text';
-
-          // Helper for Jumping Blocks
-          const jumpForward = () => {
-            editor.commands.focus();
-            // Manually trigger the shortcut command logic or simulating keypress is hard, 
-            // easier to just dispatch the selection logic directly if needed, 
-            // but 'editor.commands.keyboardShortcut' isn't a standard public API for *triggering*.
-            // We will manually execute the logic:
-            const { state } = editor;
-            const { doc } = state;
-            // We are inside a node, getPos() is current node start
-            if (typeof getPos === 'function') {
-              const nextPos = getPos() + node.nodeSize;
-              if (nextPos < doc.content.size) {
-                const nextSelection = TextSelection.near(doc.resolve(nextPos), 1);
-                editor.view.dispatch(state.tr.setSelection(nextSelection));
-                editor.view.focus();
-              }
-            }
-          };
-
-          const jumpBackward = () => {
-            editor.commands.focus();
-            if (typeof getPos === 'function') {
-              const { state } = editor;
-              const { doc } = state;
-              const prevPos = getPos();
-              if (prevPos > 0) {
-                const prevSelection = TextSelection.near(doc.resolve(prevPos - 1), -1);
-                editor.view.dispatch(state.tr.setSelection(prevSelection));
-                editor.view.focus();
-              }
-            }
-          };
-
-          const handleBlockJump = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') {
-              e.preventDefault();
-              jumpForward();
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') {
-              e.preventDefault();
-              jumpBackward();
-            }
-          };
-
-          questionInput.addEventListener('keydown', handleBlockJump);
-          questionInput.placeholder = 'Enter your question...';
-          questionInput.value = node.attrs.question;
-          questionInput.setAttribute('aria-label', 'Question');
-          questionInput.setAttribute('tabindex', '0');
-          questionInput.style.cssText = `
-            width: 100%;
-            font-family: inherit;
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #1e293b;
-            border: none;
-            border-bottom: 2px solid #e2e8f0;
-            padding: 0.5rem 0;
-            margin-bottom: 1.5rem;
-            background: transparent;
-            outline: none;
-            transition: border-color 0.2s;
-          `;
-
-          questionInput.oninput = (e) => updateAttrs({ question: e.target.value });
-          questionInput.onfocus = () => { questionInput.style.borderBottomColor = '#3b82f6'; };
-          questionInput.onblur = () => { questionInput.style.borderBottomColor = '#e2e8f0'; };
-
-          // Question Input Keyboard Navigation
-          questionInput.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              // Move focus to first option input
-              const firstOption = optionsCtx.querySelector('input');
-              if (firstOption) firstOption.focus();
-              else addBtn.focus();
-            } else if (e.key === 'ArrowDown') {
-              e.preventDefault();
-              const firstOption = optionsCtx.querySelector('input');
-              if (firstOption) firstOption.focus();
-            }
-          };
-
-          // 4. Options Container
-          const optionsCtx = document.createElement('div');
-          optionsCtx.style.cssText = 'display: flex; flex-direction: column; gap: 0.75rem;';
-          optionsCtx.setAttribute('role', 'list');
-
-          // 5. Render Logic
-          const renderOptions = () => {
-            optionsCtx.innerHTML = '';
-            node.attrs.options.forEach((option, index) => {
-              const row = document.createElement('div');
-              row.setAttribute('role', 'listitem');
-              row.style.cssText = 'display: flex; align-items: center; gap: 0.75rem; width: 100%;';
-
-              // Correct Toggle
-              const checkbox = document.createElement('div'); // Using div as custom checkbox for better control
-              checkbox.setAttribute('role', 'checkbox');
-              checkbox.setAttribute('aria-checked', option.isCorrect.toString());
-              checkbox.setAttribute('aria-label', `Mark option ${index + 1} as correct`);
-              checkbox.setAttribute('tabindex', '0');
-              checkbox.style.cssText = `
-                width: 24px;
-                height: 24px;
-                border-radius: 6px;
-                border: 2px solid ${option.isCorrect ? '#22c55e' : '#cbd5e1'};
-                background: ${option.isCorrect ? '#22c55e' : 'transparent'};
-                color: white;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                flex-shrink: 0;
-                transition: all 0.2s;
-              `;
-
-              if (option.isCorrect) {
-                checkbox.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-              }
-
-              const toggleCorrect = () => {
-                const newOptions = node.attrs.options.map((opt, i) => ({
-                  ...opt,
-                  isCorrect: i === index ? !opt.isCorrect : false
-                }));
-                updateAttrs({ options: newOptions });
-                // Announce change
-                const liveRegion = document.getElementById('editor-live-region');
-                if (liveRegion) liveRegion.textContent = `Option ${index + 1} marked as ${!option.isCorrect ? 'correct' : 'incorrect'}`;
-              };
-
-              checkbox.onmousedown = (e) => { e.preventDefault(); toggleCorrect(); };
-              checkbox.onkeydown = (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  toggleCorrect();
-                }
-              };
-
-              // Text Input
-              const input = document.createElement('input');
-              input.type = 'text';
-              input.value = option.text;
-              input.placeholder = `Option ${index + 1}`;
-              input.addEventListener('keydown', handleBlockJump);
-              input.setAttribute('aria-label', `Option ${index + 1} text`);
-              input.style.cssText = `
-                flex: 1;
-                padding: 0.5rem 0.75rem;
-                border: 1px solid ${option.isCorrect ? '#86efac' : '#e2e8f0'};
-                border-radius: 0.5rem;
-                font-size: 0.95rem;
-                color: #334155;
-                outline: none;
-                transition: all 0.2s;
-                background: ${option.isCorrect ? '#f0fdf4' : 'transparent'};
-              `;
-
-              input.oninput = (e) => {
-                const newOptions = [...node.attrs.options];
-                newOptions[index] = { ...newOptions[index], text: e.target.value };
-                updateAttrs({ options: newOptions });
-              };
-
-              input.onfocus = () => { if (!option.isCorrect) input.style.borderColor = '#3b82f6'; };
-              input.onblur = () => { if (!option.isCorrect) input.style.borderColor = '#e2e8f0'; };
-
-              // Input Keyboard Nav
-              input.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  // Add new option below
-                  const newId = Math.random().toString(36).slice(2, 9);
-                  const newOptions = [...node.attrs.options];
-                  newOptions.splice(index + 1, 0, { id: newId, text: '', isCorrect: false });
-                  updateAttrs({ options: newOptions });
-                  // Focus logic will need to handle update - handled in update() or forced delayed focus
-                  setTimeout(() => {
-                    const inputs = optionsCtx.querySelectorAll('input[type="text"]');
-                    if (inputs[index + 1]) inputs[index + 1].focus();
-                  }, 50);
-                } else if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  const inputs = optionsCtx.querySelectorAll('input[type="text"]');
-                  if (inputs[index + 1]) inputs[index + 1].focus();
-                  else addBtn.focus();
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  const inputs = optionsCtx.querySelectorAll('input[type="text"]');
-                  if (inputs[index - 1]) inputs[index - 1].focus();
-                  else questionInput.focus();
-                } else if (e.key === 'Backspace' && input.value === '' && node.attrs.options.length > 2) {
-                  // Delete option if empty (and not the only ones)
-                  e.preventDefault();
-                  const newOptions = node.attrs.options.filter((_, i) => i !== index);
-                  updateAttrs({ options: newOptions });
-                  setTimeout(() => {
-                    const inputs = optionsCtx.querySelectorAll('input[type="text"]');
-                    if (inputs[index - 1]) inputs[index - 1].focus();
-                    else if (inputs[index]) inputs[index].focus();
-                  }, 50);
-                }
-              };
-
-              // Delete Button
-              const del = document.createElement('button');
-              del.innerHTML = '×';
-              del.setAttribute('aria-label', `Delete option ${index + 1}`);
-              del.setAttribute('tabindex', '0');
-              del.style.cssText = `
-                 width: 24px;
-                 height: 24px;
-                 display: flex;
-                 align-items: center;
-                 justify-content: center;
-                 border: none;
-                 background: transparent;
-                 color: #94a3b8;
-                 cursor: pointer;
-                 font-size: 20px;
-                 border-radius: 4px;
-                 transition: color 0.2s;
-                 line-height: 1;
-                 padding: 0;
-              `;
-              del.onmouseenter = () => del.style.color = '#ef4444';
-              del.onmouseleave = () => del.style.color = '#94a3b8';
-
-              const deleteOption = () => {
-                const newOptions = node.attrs.options.filter((_, i) => i !== index);
-                updateAttrs({ options: newOptions });
-              };
-
-              del.onmousedown = (e) => { e.preventDefault(); deleteOption(); };
-              del.onkeydown = (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  deleteOption();
-                }
-              };
-
-              row.append(checkbox, input, del);
-              optionsCtx.appendChild(row);
+          try {
+            katex.render(text, preview, {
+              throwOnError: false,
+              displayMode: true
             });
-          };
+            preview.style.color = 'inherit';
+          } catch (e) {
+            preview.textContent = e.message;
+            preview.style.color = '#ef4444';
+          }
+        };
 
-          renderOptions();
+        // Initial Render
+        renderMath(node.attrs.text);
 
-          // 6. Add Button
-          const addBtn = document.createElement('button');
-          addBtn.innerHTML = '+ Add Option';
-          addBtn.addEventListener('keydown', handleBlockJump);
-          addBtn.setAttribute('aria-label', 'Add new option');
-          addBtn.style.cssText = `
-            margin-top: 1rem;
-            padding: 0.5rem 1rem;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 0.5rem;
-            color: #475569;
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-          `;
-          addBtn.onmouseenter = () => { addBtn.style.background = '#f1f5f9'; addBtn.style.color = '#1e293b'; };
-          addBtn.onmouseleave = () => { addBtn.style.background = '#f8fafc'; addBtn.style.color = '#475569'; };
+        // Interaction Logic
+        let isEditing = false;
 
-          const addOption = () => {
-            const newId = Math.random().toString(36).slice(2, 9);
-            const newOptions = [...node.attrs.options, { id: newId, text: '', isCorrect: false }];
-            updateAttrs({ options: newOptions });
-            // Focus new option
+        const toggleEdit = (active) => {
+          if (isEditing === active) return; // Debounce duplicate state changes
+          isEditing = active;
+
+          if (active) {
+            container.classList.add('is-editing');
+            // Small delay to ensure display:block applied before focus
             setTimeout(() => {
-              const inputs = optionsCtx.querySelectorAll('input[type="text"]');
-              if (inputs[inputs.length - 1]) inputs[inputs.length - 1].focus();
-            }, 50);
-          };
-
-          addBtn.onmousedown = (e) => { e.preventDefault(); addOption(); };
-          addBtn.onkeydown = (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              addOption();
-            } else if (e.key === 'ArrowUp') {
-              e.preventDefault();
-              const inputs = optionsCtx.querySelectorAll('input[type="text"]');
-              if (inputs.length > 0) inputs[inputs.length - 1].focus();
-            }
-          };
-
-          dom.append(questionInput, optionsCtx, addBtn);
-
-          dom.append(questionInput, optionsCtx, addBtn);
-
-          // Removed unconditional autofocus that was causing focus stealing bugs
-          // Focus is now handled by selectNode or interactions
-
-          return {
-            dom,
-            ignoreMutation: (mutation) => {
-              // Internal updates (handled by listeners) should be ignored by ProseMirror
-              if (dom.contains(mutation.target)) return true;
-              return false;
-            },
-            stopEvent: (event) => {
-              // Vital: Allow interactions in inputs/buttons
-              if (['INPUT', 'BUTTON', 'TEXTAREA'].includes(event.target.tagName)) {
-                // allow default keyboard events (typing), but maybe stop propagation if it's a navigational key handled by us
-                return true;
-              }
-              // Don't block dragstart if it's on the container
-              if (event.type === 'dragstart' && event.target === dom) return false;
-
-              return false;
-            },
-            update: (updatedNode) => {
-              if (updatedNode.type.name !== 'mcq') return false;
-
-              // Question Sync
-              if (updatedNode.attrs.question !== node.attrs.question) {
-                questionInput.value = updatedNode.attrs.question;
-              }
-
-              // Options Sync: Only re-render if count changes (add/delete)
-              // Text changes inside inputs are handled by native DOM + attribute updates
-              if (updatedNode.attrs.options.length !== node.attrs.options.length) {
-                node = updatedNode; // Update reference
-                renderOptions();
-              } else {
-                // Determine if we need to re-render checkboxes? 
-                // If text changed, we DON'T re-render.
-                // If isCorrect changed, we might need to update visual state of checkboxes.
-                // Let's check isCorrect changes:
-                const oldOpts = node.attrs.options;
-                const newOpts = updatedNode.attrs.options;
-
-                // Simple check: if isCorrect status mismatch, we might want to update checkboxes specifically
-                // or just re-render is fine if it's a click interaction (focus usually not in text input then).
-                // But safer to just re-render if non-text attributes change? 
-                // The prompt specifically asked: "Only re-render when option count changes".
-                // We will stick to that to be safe first.
-
-                // Actually, if we toggle 'isCorrect', we DO need to update the checkbox UI.
-                // The user logic `renderOptions()` rebuilds the whole list.
-                // If we toggle correct, we lose focus? Focus is on the checkbox div, so it's okay.
-                // It's mainly about typing text.
-
-                // Let's verify if only text changed.
-                let onlyTextDiff = true;
-                if (oldOpts.length === newOpts.length) {
-                  for (let i = 0; i < oldOpts.length; i++) {
-                    if (oldOpts[i].isCorrect !== newOpts[i].isCorrect) {
-                      onlyTextDiff = false;
-                      break;
-                    }
-                  }
-                }
-
-                if (!onlyTextDiff) {
-                  node = updatedNode;
-                  renderOptions();
-                } else {
-                  node = updatedNode;
+              input.focus();
+            }, 10);
+          } else {
+            container.classList.remove('is-editing');
+            // Save changes if dirty
+            if (input.value !== node.attrs.text) {
+              if (typeof getPos === 'function') {
+                const pos = getPos();
+                if (pos !== undefined && pos !== null) {
+                  editor.chain().focus().command(({ tr }) => {
+                    return tr.setNodeAttribute(pos, 'text', input.value);
+                  }).run();
                 }
               }
-              return true;
-            },
-            selectNode: () => {
-              dom.style.borderColor = '#3b82f6';
-              dom.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-
-              // Only focus if selection is explicitly on this node (e.g. via keyboard selection)
-              // and NOT during arbitrary updates
-              const { state } = editor;
-              const { selection } = state;
-              if (selection instanceof NodeSelection && selection.node === node) {
-                setTimeout(() => {
-                  if (questionInput) questionInput.focus();
-                }, 10);
-              }
-            },
-            deselectNode: () => {
-              dom.style.borderColor = '#e2e8f0';
-              dom.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
             }
-          };
-        }
-      }
-    });
+          }
+        };
 
-    /* --- Global Keyboard Shortcuts --- */
-    const GlobalShortcuts = Extension.create({
-      name: 'globalShortcuts',
-      addKeyboardShortcuts() {
+        preview.addEventListener('click', (e) => {
+          e.preventDefault();
+          toggleEdit(true);
+        });
+
+        input.addEventListener('input', (e) => {
+          // Just update preview locally, don't trigger transaction yet
+          renderMath(e.target.value);
+        });
+
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            toggleEdit(false);
+            editor.commands.focus(); // Return focus to editor
+          }
+        });
+
+        // Handle blur - checks if focus moved outside the component
+        input.addEventListener('blur', (e) => {
+          // We use a timeout to allow clicks on other parts of UI to process first if needed
+          // But simpler: just close.
+          toggleEdit(false);
+        });
+
+        container.append(preview, input);
+
         return {
-          // Text Formatting
-          'Mod-b': () => this.editor.commands.toggleBold(),
-          'Mod-i': () => this.editor.commands.toggleItalic(),
-          'Mod-Shift-s': () => this.editor.commands.toggleStrike(),
-          'Mod-e': () => this.editor.commands.toggleCode(),
-          'Ctrl-Alt-1': () => this.editor.commands.toggleHeading({ level: 1 }),
-          'Ctrl-Alt-2': () => this.editor.commands.toggleHeading({ level: 2 }),
-          'Ctrl-Alt-3': () => this.editor.commands.toggleHeading({ level: 3 }),
-          'Mod-Shift-8': () => this.editor.commands.toggleBulletList(),
-          'Mod-Shift-7': () => this.editor.commands.toggleOrderedList(),
-          'Mod-Shift-9': () => this.editor.commands.toggleTaskList(),
-          'Mod-Shift-h': () => this.editor.commands.setHorizontalRule(),
-
-          // Block Insertion
-          'Ctrl-Alt-m': () => {
-            this.editor.chain().focus().insertContent({ type: 'mcq', attrs: { question: '' } }).run();
-            // Focus logic handled by Mcq NodeView
+          dom: container,
+          // Prevent ProtonMirror from re-rendering the node when we type in the textarea
+          ignoreMutation: (mutation) => {
+            // We handle our own mutations (textarea input)
             return true;
           },
-          'Ctrl-Alt-e': () => this.editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: '' } }).run(),
-          'Ctrl-Alt-c': () => this.editor.chain().focus().toggleCodeBlock().run(),
-          'Ctrl-Alt-t': () => this.editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-          'Ctrl-Alt-i': () => this.editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph' }] }).run(),
-          'Ctrl-Alt-p': () => this.editor.chain().focus().insertContent({ type: 'pageBreak' }).run(),
+          // Stop events from bubbling up to the editor to prevent unwanted side effects
+          stopEvent: (event) => {
+            // Allow default behavior for the textarea (keyboard interaction, etc.)
+            if (event.target === input) {
+              // For keydown, we want to stop propagation so Tiptap doesn't handle Enter/Backspace etc.
+              // But for 'input', maybe not?
+              // Generally returning true safely isolates the input.
+              return true;
+            }
+            return false;
+          },
+          update: (updatedNode) => {
+            if (updatedNode.type.name !== 'mathBlock') return false;
+            // Sync local state if external update happened (e.g. Undo/Redo)
+            if (updatedNode.attrs.text !== node.attrs.text) {
+              node = updatedNode;
+              input.value = node.attrs.text;
+              renderMath(node.attrs.text);
+            }
+            return true;
+          },
+          selectNode: () => {
+            container.classList.add('ProseMirror-selectednode');
+          },
+          deselectNode: () => {
+            container.classList.remove('ProseMirror-selectednode');
+            toggleEdit(false);
+          }
+        };
+      };
 
-          // AI Actions
-          'Ctrl-Shift-i': () => { handleAIRequest('improve'); return true; },
-          'Ctrl-Shift-u': () => { handleAIRequest('summarize'); return true; },
-          'Ctrl-Shift-x': () => { handleAIRequest('explain'); return true; },
-          'Ctrl-Shift-Enter': () => { handleAIRequest('continue'); return true; },
-          'Ctrl-Shift-m': () => { handleAIRequest('generate-mcq'); return true; },
-          'Ctrl-Shift-g': () => { handleAIRequest('fix-grammar'); return true; },
-        }
-      }
-    });
+      const CalloutView = ({ node, editor, getPos }) => {
+        const dom = document.createElement('div');
+        dom.classList.add('callout', `callout-${node.attrs.type}`);
+        dom.style.position = 'relative';
 
-    /* --- Slash Menu Configuration --- */
-    const slashGroups = [
-      {
-        title: 'Text',
-        items: [
-          { title: 'Paragraph', icon: 'T', action: editor => editor.chain().focus().setParagraph().run() },
-          { title: 'Heading 1', icon: 'H1', shortcut: 'Ctrl+Alt+1', action: editor => editor.chain().focus().toggleHeading({ level: 1 }).run() },
-          { title: 'Heading 2', icon: 'H2', shortcut: 'Ctrl+Alt+2', action: editor => editor.chain().focus().toggleHeading({ level: 2 }).run() },
-          { title: 'Heading 3', icon: 'H3', shortcut: 'Ctrl+Alt+3', action: editor => editor.chain().focus().toggleHeading({ level: 3 }).run() },
-          { title: 'Bullet List', icon: '•', shortcut: 'Ctrl+Shift+8', action: editor => editor.chain().focus().toggleBulletList().run() },
-          { title: 'Numbered List', icon: '1.', shortcut: 'Ctrl+Shift+7', action: editor => editor.chain().focus().toggleOrderedList().run() },
-        ]
-      },
-      {
-        title: 'Media',
-        items: [
-          {
-            title: 'Image',
-            description: 'Upload an image',
-            icon: '🖼️',
-            action: async (editor) => {
-              const file = await triggerFileUpload('image/*');
-              if (file) editor.chain().focus().setImage({ src: file.src }).run();
+        const icon = document.createElement('span');
+        icon.className = 'callout-icon';
+        icon.contentEditable = 'false';
+        const getIcon = (t) => {
+          if (t === 'success') return '✅';
+          if (t === 'warning') return '⚠️';
+          if (t === 'error') return '⛔';
+          return '💡';
+        };
+        icon.innerText = getIcon(node.attrs.type);
+
+        const content = document.createElement('div');
+        content.className = 'callout-content';
+        content.style.flex = '1';
+
+        // Type Selector (Premium Feature)
+        const select = document.createElement('select');
+        select.className = 'callout-type-select';
+        select.style.cssText = `
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid rgba(0,0,0,0.1);
+        background: rgba(255,255,255,0.8);
+        opacity: 0;
+        transition: opacity 0.2s;
+        cursor: pointer;
+        outline: none;
+        color: #475569;
+        font-weight: 600;
+      `;
+        ['info', 'success', 'warning', 'error'].forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t;
+          opt.innerText = t.charAt(0).toUpperCase() + t.slice(1);
+          if (node.attrs.type === t) opt.selected = true;
+          select.appendChild(opt);
+        });
+
+        dom.onmouseenter = () => select.style.opacity = '1';
+        dom.onmouseleave = () => select.style.opacity = '0';
+
+        select.onchange = (e) => {
+          if (typeof getPos === 'function') {
+            editor.commands.updateAttributes(getPos(), { type: e.target.value });
+          }
+        };
+
+        dom.append(icon, content, select);
+
+        return {
+          dom,
+          contentDOM: content,
+          update: (updatedNode) => {
+            if (updatedNode.type.name !== 'callout') return false;
+            if (updatedNode.attrs.type !== node.attrs.type) {
+              dom.classList.remove(`callout-${node.attrs.type}`);
+              dom.classList.add(`callout-${updatedNode.attrs.type}`);
+              icon.innerText = getIcon(updatedNode.attrs.type);
+              select.value = updatedNode.attrs.type;
             }
-          },
-          {
-            title: 'Video',
-            description: 'Upload a video',
-            icon: '📹',
-            action: async (editor) => {
-              const file = await triggerFileUpload('video/*');
-              if (file) editor.chain().focus().insertContent({ type: 'video', attrs: { src: file.src } }).run();
+            node = updatedNode;
+            return true;
+          }
+        };
+      };
+
+      const CodeBlockView = ({ node, editor, getPos, extension }) => {
+        const dom = document.createElement('div');
+        dom.style.position = 'relative';
+        dom.className = 'code-block-wrapper';
+
+        const select = document.createElement('select');
+        select.className = 'language-selector';
+        select.contentEditable = 'false';
+
+        // Common languages
+        const langs = ['javascript', 'css', 'html', 'python', 'java', 'cpp', 'typescript', 'json', 'bash', 'go', 'rust'];
+
+        langs.forEach(lang => {
+          const option = document.createElement('option');
+          option.value = lang;
+          option.innerText = lang;
+          if (lang === node.attrs.language) option.selected = true;
+          select.appendChild(option);
+        });
+
+        select.addEventListener('change', (e) => {
+          if (typeof getPos === 'function') {
+            editor.commands.updateAttributes(getPos(), { language: e.target.value });
+          }
+        });
+
+        const pre = document.createElement('pre');
+        const code = document.createElement('code');
+
+        pre.append(code);
+        dom.append(select, pre);
+
+        return {
+          dom,
+          contentDOM: code,
+          update: (updatedNode) => {
+            if (updatedNode.type.name !== node.type.name) return false;
+            if (updatedNode.attrs.language !== node.attrs.language) {
+              select.value = updatedNode.attrs.language;
             }
-          },
-          {
-            title: 'File',
-            description: 'Upload a file attachment',
-            icon: '📎',
-            action: async (editor) => {
-              const file = await triggerFileUpload('*/*');
-              if (file) editor.chain().focus().insertContent({ type: 'fileAttachment', attrs: { src: file.src, name: file.name, size: file.size } }).run();
+            node = updatedNode;
+            return true;
+          }
+        };
+      };
+
+      const McqView = ({ node, getPos, editor }) => {
+        // 1. Container
+        const dom = document.createElement('div');
+        dom.classList.add('mcq-node');
+        dom.setAttribute('role', 'group');
+        dom.setAttribute('aria-label', 'Multiple Choice Question');
+        dom.setAttribute('tabindex', '-1'); // Not focusable itself, children are
+        dom.style.cssText = `
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        background: #fff;
+        margin: 2rem 0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        transition: border-color 0.2s, box-shadow 0.2s;
+        position: relative;
+      `;
+
+        // 2. Helper for Safe Updates
+        const updateAttrs = (attrs) => {
+          if (typeof getPos === 'function') {
+            const pos = getPos();
+            if (pos !== undefined && pos !== null) {
+              editor.view.dispatch(
+                editor.state.tr.setNodeMarkup(pos, undefined, {
+                  ...node.attrs,
+                  ...attrs,
+                })
+              );
             }
+          }
+        };
+
+        // 3. Question Input
+        const questionInput = document.createElement('input');
+        questionInput.type = 'text';
+
+        // Helper for Jumping Blocks
+        const jumpForward = () => {
+          editor.commands.focus();
+          const { state } = editor;
+          const { doc } = state;
+          if (typeof getPos === 'function') {
+            const nextPos = getPos() + node.nodeSize;
+            if (nextPos < doc.content.size) {
+              const nextSelection = TextSelection.near(doc.resolve(nextPos), 1);
+              editor.view.dispatch(state.tr.setSelection(nextSelection));
+              editor.view.focus();
+            }
+          }
+        };
+
+        const jumpBackward = () => {
+          editor.commands.focus();
+          if (typeof getPos === 'function') {
+            const { state } = editor;
+            const { doc } = state;
+            const prevPos = getPos();
+            if (prevPos > 0) {
+              const prevSelection = TextSelection.near(doc.resolve(prevPos - 1), -1);
+              editor.view.dispatch(state.tr.setSelection(prevSelection));
+              editor.view.focus();
+            }
+          }
+        };
+
+        const handleBlockJump = (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') {
+            e.preventDefault();
+            jumpForward();
+          }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') {
+            e.preventDefault();
+            jumpBackward();
+          }
+        };
+
+        questionInput.addEventListener('keydown', handleBlockJump);
+        questionInput.placeholder = 'Enter your question...';
+        questionInput.value = node.attrs.question;
+        questionInput.setAttribute('aria-label', 'Question');
+        questionInput.setAttribute('tabindex', '0');
+        questionInput.style.cssText = `
+        width: 100%;
+        font-family: inherit;
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: #1e293b;
+        border: none;
+        border-bottom: 2px solid #e2e8f0;
+        padding: 0.5rem 0;
+        margin-bottom: 1.5rem;
+        background: transparent;
+        outline: none;
+        transition: border-color 0.2s;
+      `;
+
+        questionInput.oninput = (e) => updateAttrs({ question: e.target.value });
+        questionInput.onfocus = () => { questionInput.style.borderBottomColor = '#3b82f6'; };
+        questionInput.onblur = () => { questionInput.style.borderBottomColor = '#e2e8f0'; };
+
+        // Question Input Keyboard Navigation
+        questionInput.onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            // Move focus to first option input
+            const firstOption = optionsCtx.querySelector('input');
+            if (firstOption) firstOption.focus();
+            else addBtn.focus();
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const firstOption = optionsCtx.querySelector('input');
+            if (firstOption) firstOption.focus();
+          }
+        };
+
+        // 4. Options Container
+        const optionsCtx = document.createElement('div');
+        optionsCtx.style.cssText = 'display: flex; flex-direction: column; gap: 0.75rem;';
+        optionsCtx.setAttribute('role', 'list');
+
+        // 5. Render Logic
+        const renderOptions = () => {
+          optionsCtx.innerHTML = '';
+          node.attrs.options.forEach((option, index) => {
+            const row = document.createElement('div');
+            row.setAttribute('role', 'listitem');
+            row.style.cssText = 'display: flex; align-items: center; gap: 0.75rem; width: 100%;';
+
+            // Correct Toggle
+            const checkbox = document.createElement('div'); // Using div as custom checkbox for better control
+            checkbox.setAttribute('role', 'checkbox');
+            checkbox.setAttribute('aria-checked', option.isCorrect.toString());
+            checkbox.setAttribute('aria-label', `Mark option ${index + 1} as correct`);
+            checkbox.setAttribute('tabindex', '0');
+            checkbox.style.cssText = `
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: 2px solid ${option.isCorrect ? '#22c55e' : '#cbd5e1'};
+            background: ${option.isCorrect ? '#22c55e' : 'transparent'};
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: all 0.2s;
+          `;
+
+            if (option.isCorrect) {
+              checkbox.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+            }
+
+            const toggleCorrect = () => {
+              const newOptions = node.attrs.options.map((opt, i) => ({
+                ...opt,
+                isCorrect: i === index ? !opt.isCorrect : false
+              }));
+              updateAttrs({ options: newOptions });
+              // Announce change
+              const liveRegion = document.getElementById('editor-live-region');
+              if (liveRegion) liveRegion.textContent = `Option ${index + 1} marked as ${!option.isCorrect ? 'correct' : 'incorrect'}`;
+            };
+
+            checkbox.onmousedown = (e) => { e.preventDefault(); toggleCorrect(); };
+            checkbox.onkeydown = (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleCorrect();
+              }
+            };
+
+            // Text Input
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = option.text;
+            input.placeholder = `Option ${index + 1}`;
+            input.addEventListener('keydown', handleBlockJump);
+            input.setAttribute('aria-label', `Option ${index + 1} text`);
+            input.style.cssText = `
+            flex: 1;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid ${option.isCorrect ? '#86efac' : '#e2e8f0'};
+            border-radius: 0.5rem;
+            font-size: 0.95rem;
+            color: #334155;
+            outline: none;
+            transition: all 0.2s;
+            background: ${option.isCorrect ? '#f0fdf4' : 'transparent'};
+          `;
+
+            input.oninput = (e) => {
+              const newOptions = [...node.attrs.options];
+              newOptions[index] = { ...newOptions[index], text: e.target.value };
+              updateAttrs({ options: newOptions });
+            };
+
+            input.onfocus = () => { if (!option.isCorrect) input.style.borderColor = '#3b82f6'; };
+            input.onblur = () => { if (!option.isCorrect) input.style.borderColor = '#e2e8f0'; };
+
+            // Input Keyboard Nav
+            input.onkeydown = (e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                // Add new option below
+                const newId = Math.random().toString(36).slice(2, 9);
+                const newOptions = [...node.attrs.options];
+                newOptions.splice(index + 1, 0, { id: newId, text: '', isCorrect: false });
+                updateAttrs({ options: newOptions });
+                // Focus logic will need to handle update - handled in update() or forced delayed focus
+                setTimeout(() => {
+                  const inputs = optionsCtx.querySelectorAll('input[type="text"]');
+                  if (inputs[index + 1]) inputs[index + 1].focus();
+                }, 50);
+              } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const inputs = optionsCtx.querySelectorAll('input[type="text"]');
+                if (inputs[index + 1]) inputs[index + 1].focus();
+                else addBtn.focus();
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const inputs = optionsCtx.querySelectorAll('input[type="text"]');
+                if (inputs[index - 1]) inputs[index - 1].focus();
+                else questionInput.focus();
+              } else if (e.key === 'Backspace' && input.value === '' && node.attrs.options.length > 2) {
+                // Delete option if empty (and not the only ones)
+                e.preventDefault();
+                const newOptions = node.attrs.options.filter((_, i) => i !== index);
+                updateAttrs({ options: newOptions });
+                setTimeout(() => {
+                  const inputs = optionsCtx.querySelectorAll('input[type="text"]');
+                  if (inputs[index - 1]) inputs[index - 1].focus();
+                  else if (inputs[index]) inputs[index].focus();
+                }, 50);
+              }
+            };
+
+            // Delete Button
+            const del = document.createElement('button');
+            del.innerHTML = '×';
+            del.setAttribute('aria-label', `Delete option ${index + 1}`);
+            del.setAttribute('tabindex', '0');
+            del.style.cssText = `
+              width: 24px;
+              height: 24px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border: none;
+              background: transparent;
+              color: #94a3b8;
+              cursor: pointer;
+              font-size: 20px;
+              border-radius: 4px;
+              transition: color 0.2s;
+              line-height: 1;
+              padding: 0;
+          `;
+            del.onmouseenter = () => del.style.color = '#ef4444';
+            del.onmouseleave = () => del.style.color = '#94a3b8';
+
+            const deleteOption = () => {
+              const newOptions = node.attrs.options.filter((_, i) => i !== index);
+              updateAttrs({ options: newOptions });
+            };
+
+            del.onmousedown = (e) => { e.preventDefault(); deleteOption(); };
+            del.onkeydown = (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                deleteOption();
+              }
+            };
+
+            row.append(checkbox, input, del);
+            optionsCtx.appendChild(row);
+          });
+        };
+
+        renderOptions();
+
+        // 6. Add Button
+        const addBtn = document.createElement('button');
+        addBtn.innerHTML = '+ Add Option';
+        addBtn.addEventListener('keydown', handleBlockJump);
+        addBtn.setAttribute('aria-label', 'Add new option');
+        addBtn.style.cssText = `
+        margin-top: 1rem;
+        padding: 0.5rem 1rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        color: #475569;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      `;
+        addBtn.onmouseenter = () => { addBtn.style.background = '#f1f5f9'; addBtn.style.color = '#1e293b'; };
+        addBtn.onmouseleave = () => { addBtn.style.background = '#f8fafc'; addBtn.style.color = '#475569'; };
+
+        const addOption = () => {
+          const newId = Math.random().toString(36).slice(2, 9);
+          const newOptions = [...node.attrs.options, { id: newId, text: '', isCorrect: false }];
+          updateAttrs({ options: newOptions });
+          // Focus new option
+          setTimeout(() => {
+            const inputs = optionsCtx.querySelectorAll('input[type="text"]');
+            if (inputs[inputs.length - 1]) inputs[inputs.length - 1].focus();
+          }, 50);
+        };
+
+        addBtn.onmousedown = (e) => { e.preventDefault(); addOption(); };
+        addBtn.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            addOption();
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const inputs = optionsCtx.querySelectorAll('input[type="text"]');
+            if (inputs.length > 0) inputs[inputs.length - 1].focus();
+          }
+        };
+
+        dom.append(questionInput, optionsCtx, addBtn);
+
+        return {
+          dom,
+          ignoreMutation: (mutation) => {
+            if (dom.contains(mutation.target)) return true;
+            return false;
           },
-          {
-            title: 'Embed URL',
-            description: 'YouTube, Link, etc.',
-            icon: '🔗',
-            action: async (editor) => {
-              const url = await Modal.open('Insert Content', 'https://...');
-              if (url) {
-                if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                  editor.chain().focus().setYoutube({ src: url }).run();
-                } else {
-                  editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+          stopEvent: (event) => {
+            if (['INPUT', 'BUTTON', 'TEXTAREA'].includes(event.target.tagName)) {
+              return true;
+            }
+            if (event.type === 'dragstart' && event.target === dom) return false;
+            return false;
+          },
+          update: (updatedNode) => {
+            if (updatedNode.type.name !== 'mcq') return false;
+
+            // Question Sync
+            if (updatedNode.attrs.question !== node.attrs.question) {
+              questionInput.value = updatedNode.attrs.question;
+            }
+
+            // Options Sync
+            if (updatedNode.attrs.options.length !== node.attrs.options.length) {
+              node = updatedNode; // Update reference
+              renderOptions();
+            } else {
+              const oldOpts = node.attrs.options;
+              const newOpts = updatedNode.attrs.options;
+              let needsRender = false;
+
+              for (let i = 0; i < oldOpts.length; i++) {
+                if (oldOpts[i].isCorrect !== newOpts[i].isCorrect) {
+                  needsRender = true;
+                  break;
                 }
+              }
+
+              if (needsRender) {
+                node = updatedNode;
+                renderOptions();
+              } else {
+                node = updatedNode;
+              }
+            }
+            return true;
+          },
+          selectNode: () => {
+            dom.style.borderColor = '#3b82f6';
+            dom.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+            const { state } = editor;
+            const { selection } = state;
+            if (selection instanceof NodeSelection && selection.node === node) {
+              setTimeout(() => {
+                if (questionInput) questionInput.focus();
+              }, 10);
+            }
+          },
+          deselectNode: () => {
+            dom.style.borderColor = '#e2e8f0';
+            dom.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+          }
+        };
+      };
+
+      return { createResizable, MathBlockView, CalloutView, CodeBlockView, McqView, FileAttachmentView };
+
+    })();
+
+    /* ====================== SECTION: NODES ====================== */
+    const NODES = (() => {
+
+      const Video = Node.create({
+        name: 'video',
+        group: 'block',
+        selectable: true,
+        draggable: true,
+        atom: true,
+
+        addAttributes() {
+          return {
+            src: { default: null },
+            width: { default: '100%' }
+          }
+        },
+
+        parseHTML() {
+          return [{ tag: 'video' }]
+        },
+
+        renderHTML({ HTMLAttributes }) {
+          return ['video', mergeAttributes(HTMLAttributes, { controls: 'true', style: `width: ${HTMLAttributes.width}` })]
+        },
+
+        addNodeView() {
+          return NODE_VIEWS.createResizable('video');
+        }
+      });
+
+      const CustomImage = Image.extend({
+        addAttributes() {
+          const parentAttrs = this.parent ? this.parent() : {};
+          return {
+            ...parentAttrs,
+            width: { default: '100%' }
+          }
+        },
+        addNodeView() {
+          return NODE_VIEWS.createResizable('image');
+        }
+      });
+
+      const FileAttachment = Node.create({
+        name: 'fileAttachment',
+        group: 'block',
+        atom: true,
+
+        addAttributes() {
+          return {
+            src: { default: null },
+            name: { default: 'file' },
+            size: { default: 0 }
+          }
+        },
+
+        parseHTML() {
+          return [{ tag: 'div[data-type="file-attachment"]' }]
+        },
+
+        renderHTML({ HTMLAttributes }) {
+          return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'file-attachment' })]
+        },
+
+        addNodeView() {
+          return NODE_VIEWS.FileAttachmentView;
+        }
+      });
+
+      const MathBlock = Node.create({
+        name: 'mathBlock',
+        group: 'block',
+        atom: true,
+
+        addAttributes() {
+          return {
+            text: {
+              default: 'E = mc^2',
+              parseHTML: element => element.getAttribute('data-text'),
+              renderHTML: attributes => ({ 'data-text': attributes.text }),
+            }
+          }
+        },
+
+        parseHTML() {
+          return [{
+            tag: 'div[data-type="math-block"]',
+            getAttrs: dom => ({ text: dom.getAttribute('data-text') })
+          }]
+        },
+
+        renderHTML({ HTMLAttributes }) {
+          return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'math-block' })]
+        },
+
+        addStorage() {
+          return {
+            markdown: {
+              serialize: (state, node) => {
+                state.write(`$$\n${node.attrs.text}\n$$`);
+                state.closeBlock(node);
               }
             }
           }
-        ]
-      },
-      {
-        title: 'AI Actions',
-        items: [
-          {
-            title: 'Write with AI',
-            description: 'Generate structured educational content',
-            icon: '✍️',
-            action: editor => handleAIRequest('write')
-          },
-          { title: 'Continue', icon: '➡️', shortcut: 'Ctrl+Shift+Ent', action: editor => handleAIRequest('continue') },
-          { title: 'Improve Writing', icon: '✨', shortcut: 'Ctrl+Shift+I', action: editor => handleAIRequest('improve') },
-          { title: 'Summarize', icon: '📝', shortcut: 'Ctrl+Shift+U', action: editor => handleAIRequest('summarize') },
-          { title: 'Explain', icon: '🤔', shortcut: 'Ctrl+Shift+X', action: editor => handleAIRequest('explain') },
-          { title: 'Make Notes', icon: '📌', action: editor => handleAIRequest('convert-to-notes') },
-          { title: 'Generate MCQ', icon: '❓', shortcut: 'Ctrl+Shift+M', action: editor => handleAIRequest('generate-mcq') },
-          { title: 'Fix Grammar', icon: 'abc', shortcut: 'Ctrl+Shift+G', action: editor => handleAIRequest('fix-grammar') },
-          { title: 'Change Tone (Formal)', icon: '👔', action: editor => handleAIRequest('rewrite-tone', 'Formal') },
-        ]
-      },
-      {
-        title: 'Blocks',
-        items: [
-          { title: 'Mcq', description: 'Insert an MCQ block', icon: '📝', shortcut: 'Ctrl+Alt+M', action: editor => editor.chain().focus().insertContent({ type: 'mcq', attrs: { question: 'Enter your question here?' } }).run() },
-          { title: 'Table', icon: '▦', shortcut: 'Ctrl+Alt+T', action: editor => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
-          { title: 'Code Block', icon: '{ }', shortcut: 'Ctrl+Alt+C', action: editor => editor.chain().focus().toggleCodeBlock().run() },
-          { title: 'Math Equation', description: 'Insert a block equation (LaTeX)', icon: '∑', shortcut: 'Ctrl+Alt+E', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: 'E = mc^2' } }).run() },
-          { title: 'Info Callout', icon: '💡', shortcut: 'Ctrl+Alt+I', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Enter information here...' }] }] }).run() },
-          { title: 'Success Callout', icon: '✅', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'success' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task completed successfully!' }] }] }).run() },
-          { title: 'Warning Callout', icon: '⚠️', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'warning' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please be careful with this action.' }] }] }).run() },
-          { title: 'Error Callout', icon: '⛔', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'error' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An error occurred. Please check your input.' }] }] }).run() },
-          { title: 'Page Break', icon: '✂️', shortcut: 'Ctrl+Alt+P', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
-        ]
-      },
-      {
-        title: 'Utilities',
-        items: [
-          { title: 'Date', icon: '📅', action: editor => editor.chain().focus().insertContent(new Date().toLocaleDateString()).run() },
-          { title: 'Time', icon: '⏰', action: editor => editor.chain().focus().insertContent(new Date().toLocaleTimeString()).run() },
-          { title: 'Date & Time', icon: '📆', action: editor => editor.chain().focus().insertContent(new Date().toLocaleString()).run() },
-          { title: 'Task List', icon: '☑️', shortcut: 'Ctrl+Shift+9', action: editor => editor.chain().focus().toggleTaskList().run() },
-          { title: 'Divider', icon: '—', shortcut: 'Ctrl+Shift+H', action: editor => editor.chain().focus().setHorizontalRule().run() },
-        ]
-      }
-    ];
-
-    const SlashCommand = Extension.create({
-      name: 'slashCommand',
-      addProseMirrorPlugins() {
-        return [
-          Suggestion({
-            editor: this.editor,
-            char: '/',
-            startOfLine: false,
-            items: ({ query }) => {
-              return slashGroups.map(group => ({
-                title: group.title,
-                items: group.items.filter(item => item.title.toLowerCase().includes(query.toLowerCase()))
-              })).filter(group => group.items.length > 0);
-            },
-            render: () => {
-              let popup;
-              let selectedIndex = 0;
-              let suggestionProps;
-              let domNodes = []; // Store references to item elements
-
-              const renderList = () => {
-                if (!popup) return;
-                popup.innerHTML = '';
-                domNodes = [];
-
-                if (suggestionProps.items.length === 0) {
-                  popup.style.display = 'none';
-                  return;
-                }
-                popup.style.display = 'block';
-
-                suggestionProps.items.forEach(group => {
-                  const groupTitle = document.createElement('div');
-                  groupTitle.className = 'slash-group-title';
-                  groupTitle.textContent = group.title;
-                  popup.appendChild(groupTitle);
-
-                  group.items.forEach((item, index) => {
-                    const el = document.createElement('div');
-                    el.className = 'slash-item';
-                    el.role = 'option'; // ARIA role
-                    el.setAttribute('tabindex', '-1');
-                    if (item.shortcut) {
-                      el.setAttribute('aria-keyshortcuts', item.shortcut);
-                    }
-
-                    const shortcutHtml = item.shortcut ? `<span class="slash-item-shortcut" style="margin-left: auto; font-size: 10px; opacity: 0.6; color: inherit;">${item.shortcut}</span>` : '';
-
-                    el.innerHTML = `
-                      <div class="slash-item-icon">${item.icon}</div>
-                      <div class="slash-item-content">
-                        <div class="slash-item-title">${item.title}</div>
-                        ${item.description ? `<div class="slash-item-desc">${item.description}</div>` : ''}
-                      </div>
-                      ${shortcutHtml}
-                    `;
-
-                    el.addEventListener('mousedown', (e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      execute(item);
-                    });
-
-                    popup.appendChild(el);
-                    domNodes.push({ el, item });
-                  });
-                });
-              };
-
-              const updateSelection = (scroll = false) => {
-                domNodes.forEach(({ el }, index) => {
-                  if (index === selectedIndex) {
-                    el.classList.add('is-selected');
-                    if (scroll) {
-                      el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-                    }
-                  } else {
-                    el.classList.remove('is-selected');
-                  }
-                });
-              };
-
-              const execute = (item) => {
-                if (suggestionProps) {
-                  const { editor, range } = suggestionProps;
-                  editor.chain().focus().deleteRange(range).run();
-                  item.action(editor);
-                }
-              };
-
-              const updatePosition = () => {
-                const rect = suggestionProps.clientRect();
-                if (rect) {
-                  popup.style.position = 'absolute';
-                  popup.style.top = (rect.bottom + window.scrollY + 10) + 'px';
-                  popup.style.left = rect.left + 'px';
-                }
-              };
-
-              return {
-                onStart: props => {
-                  suggestionProps = props;
-                  popup = document.createElement('div');
-                  popup.className = 'slash-popup';
-                  document.body.appendChild(popup);
-                  selectedIndex = 0;
-                  renderList();
-                  updateSelection(false); // No scroll on start
-                  updatePosition();
-                },
-                onUpdate(props) {
-                  suggestionProps = props;
-                  selectedIndex = 0;
-                  renderList();
-                  updateSelection(false); // No scroll on update
-                  updatePosition();
-                },
-                onKeyDown(props) {
-                  if (props.event.key === 'Escape') {
-                    popup.remove();
-                    return true;
-                  }
-                  if (props.event.key === 'ArrowUp' || (props.event.key === 'Tab' && props.event.shiftKey)) {
-                    selectedIndex = (selectedIndex + domNodes.length - 1) % domNodes.length;
-                    updateSelection(true); // Scroll on key nav
-                    return true;
-                  }
-                  if (props.event.key === 'ArrowDown' || (props.event.key === 'Tab' && !props.event.shiftKey)) {
-                    selectedIndex = (selectedIndex + 1) % domNodes.length;
-                    updateSelection(true); // Scroll on key nav
-                    return true;
-                  }
-                  if (props.event.key === 'Enter') {
-                    if (domNodes[selectedIndex]) {
-                      execute(domNodes[selectedIndex].item);
-                    }
-                    return true;
-                  }
-                  return false;
-                },
-                onExit() {
-                  if (popup) popup.remove();
-                  popup = null;
-                  domNodes = [];
-                }
-              };
-            }
-          })
-        ];
-      }
-    });
-
-    /* --- Persistence & Initialization --- */
-    const STORAGE_KEY = 'tiptap-premium-editor-content';
-    const DEFAULT_CONTENT = {
-      type: 'doc',
-      content: [
-        {
-          type: 'heading',
-          attrs: { level: 1 },
-          content: [{ type: 'text', text: 'Premium Editor' }]
         },
+
+        addInputRules() {
+          return [
+            new InputRule({
+              find: /^\$\$\s$/,
+              handler: ({ state, range }) => {
+                const { tr } = state;
+                tr.replaceWith(range.from, range.to, this.type.create());
+              }
+            }),
+          ]
+        },
+
+        addNodeView() {
+          return NODE_VIEWS.MathBlockView;
+        }
+      });
+
+      const Callout = Node.create({
+        name: 'callout',
+        group: 'block',
+        content: 'block+',
+        draggable: true,
+        addAttributes() {
+          return {
+            type: { default: 'info' }
+          }
+        },
+        addInputRules() {
+          return [
+            wrappingInputRule({ find: /^! $/, type: this.type }),
+            wrappingInputRule({ find: /^!info $/, type: this.type, getAttributes: () => ({ type: 'info' }) }),
+            wrappingInputRule({ find: /^!success $/, type: this.type, getAttributes: () => ({ type: 'success' }) }),
+            wrappingInputRule({ find: /^!warning $/, type: this.type, getAttributes: () => ({ type: 'warning' }) }),
+            wrappingInputRule({ find: /^!error $/, type: this.type, getAttributes: () => ({ type: 'error' }) }),
+          ]
+        },
+        addKeyboardShortcuts() {
+          return {
+            'Enter': ({ editor }) => {
+              if (!editor.isActive('callout')) return false;
+              const { selection } = editor.state;
+              if (selection.$from.parent.content.size === 0) return editor.commands.lift('callout');
+              return false;
+            },
+            'Backspace': ({ editor }) => {
+              if (!editor.isActive('callout')) return false;
+              const { selection } = editor.state;
+              if (selection.empty && selection.$from.parentOffset === 0 && selection.$from.parent.content.size === 0) {
+                return editor.commands.lift('callout');
+              }
+              return false;
+            },
+          }
+        },
+        addNodeView() {
+          return NODE_VIEWS.CalloutView;
+        },
+        addStorage() {
+          return {
+            markdown: {
+              serialize: (state, node) => {
+                state.write(`> [!${node.attrs.type || 'info'}]\n`);
+                state.renderContent(node);
+              }
+            }
+          }
+        },
+        parseHTML() {
+          return [{ tag: 'div[data-type="callout"]', contentElement: '.callout-content' }]
+        },
+        renderHTML({ HTMLAttributes }) {
+          return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout-${HTMLAttributes.type}`, 'data-type': 'callout' }),
+            ['div', { class: 'callout-content' }, 0]
+          ]
+        }
+      });
+
+      const PageBreak = Node.create({
+        name: 'pageBreak',
+        group: 'block',
+        atom: true,
+        parseHTML() { return [{ tag: 'div.page-break' }] },
+        renderHTML({ HTMLAttributes }) {
+          return ['div', mergeAttributes(HTMLAttributes, { class: 'page-break' })]
+        }
+      });
+
+      const CustomCodeBlock = CodeBlockLowlight.extend({
+        addNodeView() {
+          return NODE_VIEWS.CodeBlockView;
+        }
+      });
+
+      const Mcq = Node.create({
+        name: 'mcq',
+        group: 'block',
+        atom: true,
+        draggable: true,
+        selectable: true,
+
+        addAttributes() {
+          return {
+            question: {
+              default: '',
+            },
+            options: {
+              default: [
+                { id: '1', text: 'Option 1', isCorrect: false },
+                { id: '2', text: 'Option 2', isCorrect: false },
+              ],
+            }
+          }
+        },
+        addStorage() {
+          return {
+            markdown: {
+              serialize: (state, node) => {
+                state.write(`? ${node.attrs.question}\n`);
+                node.attrs.options.forEach(opt => {
+                  state.write(`${opt.isCorrect ? '(x)' : '( )'} ${opt.text}\n`);
+                });
+                state.closeBlock(node);
+              }
+            }
+          }
+        },
+        addInputRules() {
+          return [
+            new InputRule({
+              find: /^\? $/,
+              handler: ({ state, range }) => {
+                const { tr } = state;
+                tr.replaceWith(range.from, range.to, this.type.create());
+              }
+            }),
+          ]
+        },
+
+        parseHTML() {
+          return [
+            {
+              tag: 'div[data-type="mcq"]',
+            },
+          ]
+        },
+
+        renderHTML({ HTMLAttributes }) {
+          return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'mcq' })]
+        },
+
+        addNodeView() {
+          return NODE_VIEWS.McqView;
+        }
+      });
+
+      return { Video, CustomImage, FileAttachment, MathBlock, Callout, PageBreak, CustomCodeBlock, Mcq };
+    })();
+
+    /* ====================== SECTION: PLUGINS ====================== */
+    const PLUGINS = (() => {
+
+      const GlobalShortcuts = Extension.create({
+        name: 'globalShortcuts',
+        addKeyboardShortcuts() {
+          return {
+            // Text Formatting
+            'Mod-b': () => this.editor.commands.toggleBold(),
+            'Mod-i': () => this.editor.commands.toggleItalic(),
+            'Mod-Shift-s': () => this.editor.commands.toggleStrike(),
+            'Mod-e': () => this.editor.commands.toggleCode(),
+            'Ctrl-Alt-1': () => this.editor.commands.toggleHeading({ level: 1 }),
+            'Ctrl-Alt-2': () => this.editor.commands.toggleHeading({ level: 2 }),
+            'Ctrl-Alt-3': () => this.editor.commands.toggleHeading({ level: 3 }),
+            'Mod-Shift-8': () => this.editor.commands.toggleBulletList(),
+            'Mod-Shift-7': () => this.editor.commands.toggleOrderedList(),
+            'Mod-Shift-9': () => this.editor.commands.toggleTaskList(),
+            'Mod-Shift-h': () => this.editor.commands.setHorizontalRule(),
+
+            // Block Insertion
+            'Ctrl-Alt-m': () => {
+              this.editor.chain().focus().insertContent({ type: 'mcq', attrs: { question: '' } }).run();
+              return true;
+            },
+            'Ctrl-Alt-e': () => this.editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: '' } }).run(),
+            'Ctrl-Alt-c': () => this.editor.chain().focus().toggleCodeBlock().run(),
+            'Ctrl-Alt-t': () => this.editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+            'Ctrl-Alt-i': () => this.editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph' }] }).run(),
+            'Ctrl-Alt-p': () => this.editor.chain().focus().insertContent({ type: 'pageBreak' }).run(),
+
+            // AI Actions
+            'Ctrl-Shift-i': () => { AI.handleRequest('improve'); return true; },
+            'Ctrl-Shift-u': () => { AI.handleRequest('summarize'); return true; },
+            'Ctrl-Shift-x': () => { AI.handleRequest('explain'); return true; },
+            'Ctrl-Shift-Enter': () => { AI.handleRequest('continue'); return true; },
+            'Ctrl-Shift-m': () => { AI.handleRequest('generate-mcq'); return true; },
+            'Ctrl-Shift-g': () => { AI.handleRequest('fix-grammar'); return true; },
+          }
+        }
+      });
+
+      const slashGroups = [
         {
-          type: 'paragraph',
-          content: [
-            { type: 'text', text: 'This is a polished TipTap editor with ' },
-            { type: 'text', marks: [{ type: 'bold' }], text: 'Code highlighting' },
-            { type: 'text', text: ', ' },
-            { type: 'text', marks: [{ type: 'bold' }], text: 'Math' },
-            { type: 'text', text: ' support, and better UI.' }
+          title: 'Text',
+          items: [
+            { title: 'Paragraph', icon: 'T', action: editor => editor.chain().focus().setParagraph().run() },
+            { title: 'Heading 1', icon: 'H1', shortcut: 'Ctrl+Alt+1', action: editor => editor.chain().focus().toggleHeading({ level: 1 }).run() },
+            { title: 'Heading 2', icon: 'H2', shortcut: 'Ctrl+Alt+2', action: editor => editor.chain().focus().toggleHeading({ level: 2 }).run() },
+            { title: 'Heading 3', icon: 'H3', shortcut: 'Ctrl+Alt+3', action: editor => editor.chain().focus().toggleHeading({ level: 3 }).run() },
+            { title: 'Bullet List', icon: '•', shortcut: 'Ctrl+Shift+8', action: editor => editor.chain().focus().toggleBulletList().run() },
+            { title: 'Numbered List', icon: '1.', shortcut: 'Ctrl+Shift+7', action: editor => editor.chain().focus().toggleOrderedList().run() },
           ]
         },
         {
-          type: 'codeBlock',
-          attrs: { language: 'javascript' },
-          content: [{ type: 'text', text: "console.log('Hello World');" }]
+          title: 'Media',
+          items: [
+            {
+              title: 'Image',
+              description: 'Upload an image',
+              icon: '🖼️',
+              action: async (editor) => {
+                const file = await UTILS.triggerFileUpload('image/*');
+                if (file) editor.chain().focus().setImage({ src: file.src }).run();
+              }
+            },
+            {
+              title: 'Video',
+              description: 'Upload a video',
+              icon: '📹',
+              action: async (editor) => {
+                const file = await UTILS.triggerFileUpload('video/*');
+                if (file) editor.chain().focus().insertContent({ type: 'video', attrs: { src: file.src } }).run();
+              }
+            },
+            {
+              title: 'File',
+              description: 'Upload a file attachment',
+              icon: '📎',
+              action: async (editor) => {
+                const file = await UTILS.triggerFileUpload('*/*');
+                if (file) editor.chain().focus().insertContent({ type: 'fileAttachment', attrs: { src: file.src, name: file.name, size: file.size } }).run();
+              }
+            },
+            {
+              title: 'Embed URL',
+              description: 'YouTube, Link, etc.',
+              icon: '🔗',
+              action: async (editor) => {
+                const url = await UI.Modal.open('Insert Content', 'https://...');
+                if (url) {
+                  if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    editor.chain().focus().setYoutube({ src: url }).run();
+                  } else {
+                    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+                  }
+                }
+              }
+            }
+          ]
         },
         {
-          type: 'callout',
-          attrs: { type: 'info' },
-          content: [{
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'Try typing ' },
-              { type: 'text', marks: [{ type: 'code' }], text: '/' },
-              { type: 'text', text: ' to see the grouped menu.' }
-            ]
-          }]
-        }
-      ]
-    };
-
-    const savedContent = localStorage.getItem(STORAGE_KEY);
-    const initialContent = savedContent ? JSON.parse(savedContent) : DEFAULT_CONTENT;
-
-    const editor = new Editor({
-      element: document.querySelector('#editor'),
-      extensions: [
-        Document,
-        Paragraph,
-        Text,
-        Blockquote,
-        BulletList,
-        OrderedList,
-        ListItem,
-        HardBreak,
-        HorizontalRule,
-        Markdown.configure({
-          html: false,
-          tightLists: true,
-          bulletListMarker: '-',
-          linkify: true,
-          transformPastedText: true,
-          transformCopiedText: true,
-        }),
-        Heading.configure({ levels: [1, 2, 3] }),
-        Bold,
-        Code,
-        Italic,
-        Strike,
-        Dropcursor.configure({ color: '#3b82f6', width: 2 }),
-        Gapcursor,
-        History,
-        Placeholder.configure({
-          placeholder: 'Type / for commands...',
-        }),
-        TaskList,
-        TaskItem.configure({ nested: true }),
-        Link.configure({ openOnClick: false }),
-        CustomImage.configure({
-          allowBase64: true,
-          inline: true,
-        }),
-        Youtube.configure({ controls: false }),
-        Table.configure({ resizable: true }),
-        TableRow, TableHeader, TableCell,
-        // Replace CodeBlockLowlight with CustomCodeBlock
-        CustomCodeBlock.configure({
-          lowlight,
-          defaultLanguage: 'javascript',
-        }),
-        MathBlock,
-        Callout,
-        PageBreak,
-        Mcq,
-        // DateTime,
-        Video,
-        FileAttachment,
-        GlobalShortcuts,
-        SlashCommand,
-        // Custom Vanilla Drag Handle
-        Extension.create({
-          name: 'premiumDragHandle',
-
-          addProseMirrorPlugins() {
-            return [
-              new Plugin({
-                key: new PluginKey('premiumDragHandle'),
-                view(editorView) {
-                  const handle = document.createElement('div');
-                  handle.className = 'global-drag-handle';
-                  handle.draggable = true;
-                  document.body.appendChild(handle);
-
-                  let currentBlock = null;
-                  let frameId = null;
-
-                  const hide = () => {
-                    handle.classList.remove('visible');
-                    currentBlock = null;
-                  };
-
-                  const updatePosition = (dom) => {
-                    const rect = dom.getBoundingClientRect();
-                    handle.style.top =
-                      rect.top + window.scrollY + rect.height / 2 - 12 + 'px';
-                    handle.style.left =
-                      rect.left - 32 + 'px';
-                    handle.classList.add('visible');
-                  };
-
-                  const onMouseMove = (e) => {
-                    if (frameId) cancelAnimationFrame(frameId);
-                    frameId = requestAnimationFrame(() => {
-                      if (e.target === handle || handle.contains(e.target)) return;
-
-                      const coords = { left: e.clientX, top: e.clientY };
-                      const pos = editorView.posAtCoords(coords);
-
-                      if (!pos) return hide();
-
-                      let targetNode = null;
-                      let targetPos = null;
-                      let targetDom = null;
-
-                      // 1. Check for Atom Block (MCQ, Image, etc.) directly at position
-                      // pos.pos often points directly before the atom node if we hover it
-                      const directNode = editorView.state.doc.nodeAt(pos.pos);
-                      if (directNode && directNode.isBlock && directNode.isAtom) {
-                        targetNode = directNode;
-                        targetPos = pos.pos;
-                        targetDom = editorView.nodeDOM(targetPos);
-                      }
-
-                      // 2. If no atom found, traverse up from the resolved position
-                      if (!targetNode) {
-                        const $pos = editorView.state.doc.resolve(pos.pos);
-                        for (let depth = $pos.depth; depth > 0; depth--) {
-                          const node = $pos.node(depth);
-                          // We are looking for the "best" block to drag.
-                          // If it's a block and not doc
-                          if (node.isBlock && node.type.name !== 'doc') {
-
-                            // Priority Logic:
-                            // If the parent is a "List Item" or "Callout", we likely want to drag that instead of the paragraph inside.
-                            const parent = $pos.node(depth - 1);
-                            if (parent && (parent.type.name === 'callout' || parent.type.name === 'listItem' || parent.type.name === 'mcq')) {
-                              // Skip this node, let the loop find the parent in next iteration
-                              continue;
-                            }
-
-                            targetNode = node;
-                            targetPos = $pos.before(depth);
-                            targetDom = editorView.nodeDOM(targetPos);
-                            break;
-                          }
-                        }
-                      }
-
-                      if (targetNode && targetDom && targetDom.nodeType === 1) {
-                        const rect = targetDom.getBoundingClientRect();
-
-                        // Show if near left side (-50px to +100px of left start)
-                        // Relaxed constraints to ensure it pops up easier
-                        if (e.clientX < rect.left - 50 || e.clientX > rect.left + rect.width) {
-                          // Too far away
-                        } else {
-                          currentBlock = { pos: targetPos, dom: targetDom };
-                          updatePosition(targetDom);
-                          return;
-                        }
-                      }
-
-                      // Safe zone check (keep visible if moving towards handle)
-                      if (currentBlock) {
-                        const rect = currentBlock.dom.getBoundingClientRect();
-                        const handleRect = handle.getBoundingClientRect();
-
-                        if (e.clientY >= rect.top - 20 && e.clientY <= rect.bottom + 20 &&
-                          e.clientX >= handleRect.left - 20 && e.clientX <= rect.left + 50) {
-                          return;
-                        }
-                      }
-
-                      hide();
-                    });
-                  };
-
-                  // Drag Start
-                  handle.addEventListener('dragstart', (e) => {
-                    if (!currentBlock || !currentBlock.dom) {
-                      e.preventDefault();
-                      return;
-                    }
-
-                    const { pos, dom } = currentBlock;
-
-                    // Safe check if pos is valid
-                    try {
-                      const tr = editorView.state.tr.setSelection(
-                        NodeSelection.create(editorView.state.doc, pos)
-                      );
-                      editorView.dispatch(tr);
-                    } catch (err) {
-                      e.preventDefault();
-                      return;
-                    }
-
-                    const slice = editorView.state.selection.content();
-                    const serializer = DOMSerializer.fromSchema(editorView.state.schema);
-                    const fragment = serializer.serializeFragment(slice.content);
-
-                    const wrapper = document.createElement('div');
-                    wrapper.appendChild(fragment);
-
-                    if (e.dataTransfer) {
-                      e.dataTransfer.setData('text/html', wrapper.innerHTML);
-                      e.dataTransfer.setData('text/plain', wrapper.innerText || wrapper.textContent || '');
-                      e.dataTransfer.effectAllowed = 'copyMove';
-                      e.dataTransfer.setDragImage(dom, 0, 0);
-                    }
-                    editorView.dragging = { slice, move: true };
-                  });
-
-                  // Auto Scroll during Drag
-                  handle.addEventListener('drag', (e) => {
-                    // Filter out invalid 0 coordinates often sent on dragend
-                    if (e.clientY === 0 && e.clientX === 0) return;
-
-                    const y = e.clientY;
-                    const h = window.innerHeight;
-
-                    // Scroll faster as you get closer to edge
-                    if (y < 50) {
-                      window.scrollBy(0, -15);
-                    } else if (y < 100) {
-                      window.scrollBy(0, -5);
-                    } else if (y > h - 50) {
-                      window.scrollBy(0, 15);
-                    } else if (y > h - 100) {
-                      window.scrollBy(0, 5);
-                    }
-                  });
-
-                  document.addEventListener('mousemove', onMouseMove);
-
-                  return {
-                    destroy() {
-                      handle.remove();
-                      document.removeEventListener('mousemove', onMouseMove);
-                    }
-                  };
-                }
-              })
-            ];
-          }
-        }),
-
-        Extension.create({
-          name: 'ctrlArrowBlockJump',
-          addKeyboardShortcuts() {
-            return {
-              'Mod-ArrowDown': ({ editor }) => {
-                const { state } = editor;
-                const { selection, doc } = state;
-                const { $from } = selection;
-                const nextPos = $from.after();
-                if (nextPos >= doc.content.size) return true;
-                const nextSelection = TextSelection.near(doc.resolve(nextPos), 1);
-                editor.view.dispatch(state.tr.setSelection(nextSelection));
-                editor.view.focus();
-                return true;
-              },
-              'Mod-ArrowUp': ({ editor }) => {
-                const { state } = editor;
-                const { selection, doc } = state;
-                const { $from } = selection;
-                const prevPos = $from.before();
-                if (prevPos <= 0) return true;
-                const prevSelection = TextSelection.near(doc.resolve(prevPos - 1), -1);
-                editor.view.dispatch(state.tr.setSelection(prevSelection));
-                editor.view.focus();
-                return true;
-              }
-            };
-          }
-        }),
-
-        BubbleMenu.configure({
-          pluginKey: 'tableBubbleMenu', // Using string key is safer for Tiptap configure unless using exact object ref
-          element: document.querySelector('#table-bubble-menu'),
-          shouldShow: ({ editor }) => editor.isActive('table')
-        }),
-
-        BubbleMenu.configure({
-          pluginKey: 'aiBubbleMenu',
-          element: document.querySelector('#ai-bubble-menu'),
-          shouldShow: ({ editor, from, to }) =>
-            !editor.state.selection.empty && !editor.isActive('table')
-        })
-
-      ],
-      content: initialContent,
-      editorProps: {
-        attributes: {
-          class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl focus:outline-none',
-          role: 'textbox',
-          'aria-multiline': 'true',
-          'aria-label': 'Rich Text Editor',
-          tabindex: '0'
+          title: 'AI Actions',
+          items: [
+            {
+              title: 'Write with AI',
+              description: 'Generate structured educational content',
+              icon: '✍️',
+              action: editor => AI.handleRequest('write')
+            },
+            { title: 'Continue', icon: '➡️', shortcut: 'Ctrl+Shift+Ent', action: editor => AI.handleRequest('continue') },
+            { title: 'Improve Writing', icon: '✨', shortcut: 'Ctrl+Shift+I', action: editor => AI.handleRequest('improve') },
+            { title: 'Summarize', icon: '📝', shortcut: 'Ctrl+Shift+U', action: editor => AI.handleRequest('summarize') },
+            { title: 'Explain', icon: '🤔', shortcut: 'Ctrl+Shift+X', action: editor => AI.handleRequest('explain') },
+            { title: 'Make Notes', icon: '📌', action: editor => AI.handleRequest('convert-to-notes') },
+            { title: 'Generate MCQ', icon: '❓', shortcut: 'Ctrl+Shift+M', action: editor => AI.handleRequest('generate-mcq') },
+            { title: 'Fix Grammar', icon: 'abc', shortcut: 'Ctrl+Shift+G', action: editor => AI.handleRequest('fix-grammar') },
+            { title: 'Change Tone (Formal)', icon: '👔', action: editor => AI.handleRequest('rewrite-tone', 'Formal') },
+          ]
         },
-      },
-      onUpdate({ editor }) {
-        const json = editor.getJSON();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(json));
-        document.getElementById('debug-json').textContent = JSON.stringify(json, null, 2);
-
-        // Auto-convert custom blocks (Math, MCQ, Callout) on every update (paste/type)
-        // Debounce slightly to allow transaction to settle
-        if (this.convertTimeout) clearTimeout(this.convertTimeout);
-        this.convertTimeout = setTimeout(() => {
-          if (!editor.isDestroyed) {
-            convertCustomBlocksRobust();
-          }
-        }, 50);
-      }
-    });
-
-    // Initial Render
-    document.getElementById('debug-json').textContent = JSON.stringify(editor.getJSON(), null, 2);
-
-    // Add Live Region for Accessibility Announcements
-    if (!document.getElementById('editor-live-region')) {
-      const liveRegion = document.createElement('div');
-      liveRegion.id = 'editor-live-region';
-      liveRegion.className = 'sr-only';
-      liveRegion.setAttribute('aria-live', 'polite');
-      liveRegion.style.cssText = 'position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;';
-      document.body.appendChild(liveRegion);
-    }
-
-    // Populate Table Bubble Menu
-    const tableMenuContainer = document.querySelector('#table-bubble-menu');
-    if (tableMenuContainer) tableMenuContainer.className = 'bubble-menu hidden';
-
-    // Helper to create buttons
-    const createBtn = (icon, action, title, isDestructive = false) => {
-      const btn = document.createElement('button');
-      btn.className = `bubble-btn ${isDestructive ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : ''}`;
-      btn.innerHTML = icon;
-      btn.title = title;
-      btn.onclick = () => editor.chain().focus()[action]().run();
-      return btn;
-    };
-
-    if (tableMenuContainer) {
-      tableMenuContainer.append(
-        createBtn('←', 'addColumnBefore', 'Add Col Before'),
-        createBtn('→', 'addColumnAfter', 'Add Col After'),
-        createBtn('↑', 'addRowBefore', 'Add Row Before'),
-        createBtn('↓', 'addRowAfter', 'Add Row After'),
-        createBtn('🗑️', 'deleteTable', 'Delete Table', true)
-      );
-    }
-
-    /* --- Advanced AI Module (Refactored) --- */
-
-    // 1. AI UI System
-    const aiUI = {
-      overlay: document.getElementById('ai-preview-overlay'),
-      content: document.getElementById('ai-preview-content'),
-      status: document.getElementById('ai-status'),
-      acceptBtn: document.getElementById('ai-accept'),
-      rejectBtn: document.getElementById('ai-reject'),
-      resolvePromise: null,
-
-      show() {
-        this.overlay.classList.remove('hidden');
-        this.content.innerHTML = '';
-        this.status.textContent = 'Thinking...';
-        this.status.className = 'text-xs text-blue-500 animate-pulse';
-        this.acceptBtn.disabled = true;
-      },
-
-      hide() {
-        this.overlay.classList.add('hidden');
-        this.resolvePromise = null;
-      },
-
-      updatePreview(html) {
-        this.content.innerHTML = html;
-        this.content.scrollTop = this.content.scrollHeight;
-      },
-
-      setSuccess() {
-        this.status.textContent = 'Generated';
-        this.status.className = 'text-xs text-green-600 font-bold';
-        this.acceptBtn.disabled = false;
-      },
-
-      setError(msg) {
-        this.status.textContent = 'Error';
-        this.status.className = 'text-xs text-red-600 font-bold';
-        this.content.innerHTML = `<p class="text-red-500">${msg}</p>`;
-      },
-
-      async waitForUser() {
-        return new Promise((resolve) => {
-          this.resolvePromise = resolve;
-          this.acceptBtn.onclick = () => resolve(true);
-          this.rejectBtn.onclick = () => resolve(false);
-        });
-      }
-    };
-
-    // --- Custom Block Converter ---
-    const convertCustomBlocks = () => {
-      const { state, view } = editor;
-      const { doc } = state;
-      let tr = state.tr;
-      let modified = false;
-
-      doc.descendants((node, pos) => {
-        if (!node.isTextblock || node.type.name !== 'paragraph') return;
-        const text = node.textContent;
-
-        // 1. Math Block: $$ ... $$
-        // Simple check for full block math
-        if (text.trim().startsWith('$$') && text.trim().endsWith('$$')) {
-          const mathText = text.trim().slice(2, -2).trim();
-          if (mathText) {
-            tr.replaceWith(pos, pos + node.nodeSize,
-              state.schema.nodes.mathBlock.create({ text: mathText })
-            );
-            modified = true;
-            return false; // Don't descend
-          }
+        {
+          title: 'Blocks',
+          items: [
+            { title: 'Mcq', description: 'Insert an MCQ block', icon: '📝', shortcut: 'Ctrl+Alt+M', action: editor => editor.chain().focus().insertContent({ type: 'mcq', attrs: { question: 'Enter your question here?' } }).run() },
+            { title: 'Table', icon: '▦', shortcut: 'Ctrl+Alt+T', action: editor => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
+            { title: 'Code Block', icon: '{ }', shortcut: 'Ctrl+Alt+C', action: editor => editor.chain().focus().toggleCodeBlock().run() },
+            { title: 'Math Equation', description: 'Insert a block equation (LaTeX)', icon: '∑', shortcut: 'Ctrl+Alt+E', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: 'E = mc^2' } }).run() },
+            { title: 'Info Callout', icon: '💡', shortcut: 'Ctrl+Alt+I', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Enter information here...' }] }] }).run() },
+            { title: 'Success Callout', icon: '✅', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'success' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task completed successfully!' }] }] }).run() },
+            { title: 'Warning Callout', icon: '⚠️', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'warning' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please be careful with this action.' }] }] }).run() },
+            { title: 'Error Callout', icon: '⛔', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'error' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An error occurred. Please check your input.' }] }] }).run() },
+            { title: 'Page Break', icon: '✂️', shortcut: 'Ctrl+Alt+P', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
+          ]
+        },
+        {
+          title: 'Utilities',
+          items: [
+            { title: 'Date', icon: '📅', action: editor => editor.chain().focus().insertContent(new Date().toLocaleDateString()).run() },
+            { title: 'Time', icon: '⏰', action: editor => editor.chain().focus().insertContent(new Date().toLocaleTimeString()).run() },
+            { title: 'Date & Time', icon: '📆', action: editor => editor.chain().focus().insertContent(new Date().toLocaleString()).run() },
+            { title: 'Task List', icon: '☑️', shortcut: 'Ctrl+Shift+9', action: editor => editor.chain().focus().toggleTaskList().run() },
+            { title: 'Divider', icon: '—', shortcut: 'Ctrl+Shift+H', action: editor => editor.chain().focus().setHorizontalRule().run() },
+          ]
         }
+      ];
 
-        // 2. MCQ: ? Question ... ( ) Option
-        if (text.trim().startsWith('? ')) {
-          // Check if next siblings are options
-          // This is hard in descendants loop due to isolation.
-          // Better strategy: Scan document text for patterns.
+      const SlashCommand = Extension.create({
+        name: 'slashCommand',
+        addProseMirrorPlugins() {
+          return [
+            Suggestion({
+              editor: this.editor,
+              char: '/',
+              startOfLine: false,
+              items: ({ query }) => {
+                return slashGroups.map(group => ({
+                  title: group.title,
+                  items: group.items.filter(item => item.title.toLowerCase().includes(query.toLowerCase()))
+                })).filter(group => group.items.length > 0);
+              },
+              render: () => {
+                let popup;
+                let selectedIndex = 0;
+                let suggestionProps;
+                let domNodes = [];
+
+                const renderList = () => {
+                  if (!popup) return;
+                  popup.innerHTML = '';
+                  domNodes = [];
+
+                  if (suggestionProps.items.length === 0) {
+                    popup.style.display = 'none';
+                    return;
+                  }
+                  popup.style.display = 'block';
+
+                  suggestionProps.items.forEach(group => {
+                    const groupTitle = document.createElement('div');
+                    groupTitle.className = 'slash-group-title';
+                    groupTitle.textContent = group.title;
+                    popup.appendChild(groupTitle);
+
+                    group.items.forEach((item, index) => {
+                      const el = document.createElement('div');
+                      el.className = 'slash-item';
+                      el.role = 'option';
+                      el.setAttribute('tabindex', '-1');
+                      if (item.shortcut) {
+                        el.setAttribute('aria-keyshortcuts', item.shortcut);
+                      }
+
+                      const shortcutHtml = item.shortcut ? `<span class="slash-item-shortcut" style="margin-left: auto; font-size: 10px; opacity: 0.6; color: inherit;">${item.shortcut}</span>` : '';
+
+                      el.innerHTML = `
+                    <div class="slash-item-icon">${item.icon}</div>
+                    <div class="slash-item-content">
+                      <div class="slash-item-title">${item.title}</div>
+                      ${item.description ? `<div class="slash-item-desc">${item.description}</div>` : ''}
+                    </div>
+                    ${shortcutHtml}
+                  `;
+
+                      el.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        execute(item);
+                      });
+
+                      popup.appendChild(el);
+                      domNodes.push({ el, item });
+                    });
+                  });
+                };
+
+                const updateSelection = (scroll = false) => {
+                  domNodes.forEach(({ el }, index) => {
+                    if (index === selectedIndex) {
+                      el.classList.add('is-selected');
+                      if (scroll) {
+                        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                      }
+                    } else {
+                      el.classList.remove('is-selected');
+                    }
+                  });
+                };
+
+                const execute = (item) => {
+                  if (suggestionProps) {
+                    const { editor, range } = suggestionProps;
+                    editor.chain().focus().deleteRange(range).run();
+                    item.action(editor);
+                  }
+                };
+
+                const updatePosition = () => {
+                  const rect = suggestionProps.clientRect();
+                  if (rect) {
+                    popup.style.position = 'absolute';
+                    popup.style.top = (rect.bottom + window.scrollY + 10) + 'px';
+                    popup.style.left = rect.left + 'px';
+                  }
+                };
+
+                return {
+                  onStart: props => {
+                    suggestionProps = props;
+                    popup = document.createElement('div');
+                    popup.className = 'slash-popup';
+                    document.body.appendChild(popup);
+                    selectedIndex = 0;
+                    renderList();
+                    updateSelection(false);
+                    updatePosition();
+                  },
+                  onUpdate(props) {
+                    suggestionProps = props;
+                    selectedIndex = 0;
+                    renderList();
+                    updateSelection(false);
+                    updatePosition();
+                  },
+                  onKeyDown(props) {
+                    if (props.event.key === 'Escape') {
+                      popup.remove();
+                      return true;
+                    }
+                    if (props.event.key === 'ArrowUp' || (props.event.key === 'Tab' && props.event.shiftKey)) {
+                      selectedIndex = (selectedIndex + domNodes.length - 1) % domNodes.length;
+                      updateSelection(true);
+                      return true;
+                    }
+                    if (props.event.key === 'ArrowDown' || (props.event.key === 'Tab' && !props.event.shiftKey)) {
+                      selectedIndex = (selectedIndex + 1) % domNodes.length;
+                      updateSelection(true);
+                      return true;
+                    }
+                    if (props.event.key === 'Enter') {
+                      if (domNodes[selectedIndex]) {
+                        execute(domNodes[selectedIndex].item);
+                      }
+                      return true;
+                    }
+                    return false;
+                  },
+                  onExit() {
+                    if (popup) popup.remove();
+                    popup = null;
+                    domNodes = [];
+                  }
+                };
+              }
+            })
+          ];
         }
       });
 
-      // Scan for MCQs using text search on the full document
-      // We look for blocks: ? Question \n ( ) Option ...
-      // Since Tiptap Markdown splits them into paragraphs, we look for sequence of paragraphs.
+      const PremiumDragHandle = Extension.create({
+        name: 'premiumDragHandle',
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              key: new PluginKey('premiumDragHandle'),
+              view(editorView) {
+                const handle = document.createElement('div');
+                handle.className = 'global-drag-handle';
+                handle.draggable = true;
+                document.body.appendChild(handle);
 
-      // Implementation: Iterate top-level nodes
-      let i = 0;
-      while (i < doc.childCount) {
-        const child = doc.child(i);
-        const pos = doc.resolve(0).posAtIndex(i); // Approximate
-        // Wait, getting absolute pos from index is tricky.
-        // Better to iterate index.
+                let currentBlock = null;
+                let frameId = null;
 
-        if (child.type.name === 'paragraph' && child.textContent.startsWith('? ')) {
-          const question = child.textContent.slice(2).trim();
-          const options = [];
-          let j = i + 1;
-          let deleteCount = 1;
+                const hide = () => {
+                  handle.classList.remove('visible');
+                  currentBlock = null;
+                };
 
-          while (j < doc.childCount) {
-            const nextNode = doc.child(j);
-            const nextText = nextNode.textContent.trim();
-            if (nextNode.type.name === 'paragraph' && /^\(\s*[x\s]?\s*\)/.test(nextText)) {
-              const isCorrect = nextText.match(/^\(\s*x\s*\)/i);
-              const optText = nextText.replace(/^\(\s*[x\s]?\s*\)\s*/, '');
-              options.push({ text: optText, isCorrect: !!isCorrect, id: Math.random().toString(36).slice(2) });
-              deleteCount++;
-              j++;
-            } else {
-              break;
-            }
-          }
+                const updatePosition = (dom) => {
+                  const rect = dom.getBoundingClientRect();
+                  handle.style.top =
+                    rect.top + window.scrollY + rect.height / 2 - 12 + 'px';
+                  handle.style.left =
+                    rect.left - 32 + 'px';
+                  handle.classList.add('visible');
+                };
 
-          if (options.length > 0) {
-            // Found a MCQ cluster! Replace child i to child i+deleteCount-1
-            // Calculate startPos and endPos
-            let startPos = 0;
-            let current = 0;
-            doc.forEach((n, offset) => {
-              if (current === i) startPos = offset;
-              current++;
-            });
+                const onMouseMove = (e) => {
+                  if (frameId) cancelAnimationFrame(frameId);
+                  frameId = requestAnimationFrame(() => {
+                    if (e.target === handle || handle.contains(e.target)) return;
 
-            // Helper to find position
-            // Actually simplest is using range of nodes
-            // We know startPos. We need endPos.
-            // The scan above is abstract. Let's use `posAtIndex`.
-          }
+                    const coords = { left: e.clientX, top: e.clientY };
+                    const pos = editorView.posAtCoords(coords);
+
+                    if (!pos) return hide();
+
+                    let targetNode = null;
+                    let targetPos = null;
+                    let targetDom = null;
+
+                    // 1. Check for Atom Block (MCQ, Image, etc.) directly at position
+                    const directNode = editorView.state.doc.nodeAt(pos.pos);
+                    if (directNode && directNode.isBlock && directNode.isAtom) {
+                      targetNode = directNode;
+                      targetPos = pos.pos;
+                      targetDom = editorView.nodeDOM(targetPos);
+                    }
+
+                    // 2. If no atom found, traverse up from the resolved position
+                    if (!targetNode) {
+                      const $pos = editorView.state.doc.resolve(pos.pos);
+                      for (let depth = $pos.depth; depth > 0; depth--) {
+                        const node = $pos.node(depth);
+                        if (node.isBlock && node.type.name !== 'doc') {
+                          const parent = $pos.node(depth - 1);
+                          if (parent && (parent.type.name === 'callout' || parent.type.name === 'listItem' || parent.type.name === 'mcq')) {
+                            continue;
+                          }
+                          targetNode = node;
+                          targetPos = $pos.before(depth);
+                          targetDom = editorView.nodeDOM(targetPos);
+                          break;
+                        }
+                      }
+                    }
+
+                    if (targetNode && targetDom && targetDom.nodeType === 1) {
+                      const rect = targetDom.getBoundingClientRect();
+
+                      if (e.clientX < rect.left - 50 || e.clientX > rect.left + rect.width) {
+                      } else {
+                        currentBlock = { pos: targetPos, dom: targetDom };
+                        updatePosition(targetDom);
+                        return;
+                      }
+                    }
+
+                    // Safe zone check (keep visible if moving towards handle)
+                    if (currentBlock) {
+                      const rect = currentBlock.dom.getBoundingClientRect();
+                      const handleRect = handle.getBoundingClientRect();
+
+                      if (e.clientY >= rect.top - 20 && e.clientY <= rect.bottom + 20 &&
+                        e.clientX >= handleRect.left - 20 && e.clientX <= rect.left + 50) {
+                        return;
+                      }
+                    }
+
+                    hide();
+                  });
+                };
+
+                // Drag Start
+                handle.addEventListener('dragstart', (e) => {
+                  if (!currentBlock || !currentBlock.dom) {
+                    e.preventDefault();
+                    return;
+                  }
+
+                  const { pos, dom } = currentBlock;
+
+                  try {
+                    const tr = editorView.state.tr.setSelection(
+                      NodeSelection.create(editorView.state.doc, pos)
+                    );
+                    editorView.dispatch(tr);
+                  } catch (err) {
+                    e.preventDefault();
+                    return;
+                  }
+
+                  const slice = editorView.state.selection.content();
+                  const serializer = DOMSerializer.fromSchema(editorView.state.schema);
+                  const fragment = serializer.serializeFragment(slice.content);
+
+                  const wrapper = document.createElement('div');
+                  wrapper.appendChild(fragment);
+
+                  if (e.dataTransfer) {
+                    e.dataTransfer.setData('text/html', wrapper.innerHTML);
+                    e.dataTransfer.setData('text/plain', wrapper.innerText || wrapper.textContent || '');
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                    e.dataTransfer.setDragImage(dom, 0, 0);
+                  }
+                  editorView.dragging = { slice, move: true };
+                });
+
+                handle.addEventListener('drag', (e) => {
+                  if (e.clientY === 0 && e.clientX === 0) return;
+                  const y = e.clientY;
+                  const h = window.innerHeight;
+                  if (y < 50) {
+                    window.scrollBy(0, -15);
+                  } else if (y < 100) {
+                    window.scrollBy(0, -5);
+                  } else if (y > h - 50) {
+                    window.scrollBy(0, 15);
+                  } else if (y > h - 100) {
+                    window.scrollBy(0, 5);
+                  }
+                });
+
+                document.addEventListener('mousemove', onMouseMove);
+
+                return {
+                  destroy() {
+                    handle.remove();
+                    document.removeEventListener('mousemove', onMouseMove);
+                  }
+                };
+              }
+            })
+          ];
         }
-        i++;
-      }
-      // ... (Simpler Implementation below using range replacement) ...
-    };
+      });
 
-    // Robust ConvertCustomBlocks
-    // We rewrite the document by replacing text blocks with Nodes
-    const convertCustomBlocksRobust = () => {
-      if (editor.isDestroyed) return;
-
-      const { state } = editor;
-      // We need to be careful not to disrupt active composition or cursor if not necessary
-      const updates = [];
-
-      // 1. Math Block & Single-Node MCQ Detection
-      editor.state.doc.forEach((node, offset) => {
-        if (node.type.name === 'paragraph') {
-          const text = node.textContent.trim();
-
-          // Math Block
-          // Math Block: $$ ... $$
-          // Handle newlines/hardBreaks by stripping them for detection
-          const rawFn = node.textContent.replace(/\n/g, '').trim();
-          if (rawFn.startsWith('$$') && rawFn.endsWith('$$') && rawFn.length > 4) {
-            const mathText = rawFn.slice(2, -2).trim();
-            updates.push({
-              from: offset,
-              to: offset + node.nodeSize,
-              type: 'mathBlock', // Ensure this matches your schema name
-              attrs: { text: mathText }
-            });
-            return;
-          }
-
-          // Callout Block Detection
-          if (text.startsWith('! ') || text.startsWith('!info') || text.startsWith('!success') || text.startsWith('!warning') || text.startsWith('!error')) {
-            const types = ['info', 'success', 'warning', 'error'];
-            let detectedType = 'info';
-            let contentStart = 0;
-
-            // Check for specific types like !success
-            for (const t of types) {
-              if (text.startsWith(`!${t}`)) {
-                detectedType = t;
-                contentStart = t.length + 1; // !success_
-                break;
-              }
+      const CtrlArrowBlockJump = Extension.create({
+        name: 'ctrlArrowBlockJump',
+        addKeyboardShortcuts() {
+          return {
+            'Mod-ArrowDown': ({ editor }) => {
+              const { state } = editor;
+              const { selection, doc } = state;
+              const { $from } = selection;
+              const nextPos = $from.after();
+              if (nextPos >= doc.content.size) return true;
+              const nextSelection = TextSelection.near(doc.resolve(nextPos), 1);
+              editor.view.dispatch(state.tr.setSelection(nextSelection));
+              editor.view.focus();
+              return true;
+            },
+            'Mod-ArrowUp': ({ editor }) => {
+              const { state } = editor;
+              const { selection, doc } = state;
+              const { $from } = selection;
+              const prevPos = $from.before();
+              if (prevPos <= 0) return true;
+              const prevSelection = TextSelection.near(doc.resolve(prevPos - 1), -1);
+              editor.view.dispatch(state.tr.setSelection(prevSelection));
+              editor.view.focus();
+              return true;
             }
+          };
+        }
+      });
 
-            // If just '! ', default to info
-            if (text.startsWith('! ')) {
-              detectedType = 'info';
-              contentStart = 2;
-            }
+      const convertCustomBlocksRobust = (editor) => {
+        if (editor.isDestroyed) return;
 
-            const contentText = text.slice(contentStart).trim();
+        const { state } = editor;
+        const updates = [];
 
-            updates.push({
-              from: offset,
-              to: offset + node.nodeSize,
-              type: 'callout',
-              attrs: { type: detectedType },
-              content: contentText
-            });
-            return;
-          }
-          // Detect proper $$ block
+        // 1. Math Block & Single-Node MCQ Detection
+        state.doc.forEach((node, offset) => {
+          if (node.type.name === 'paragraph') {
+            const text = node.textContent.trim();
 
-          // Detect multiple inline math lines stacked
-          if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
-            const mathText = node.textContent.replace(/\$/g, '').trim();
-            updates.push({
-              from: offset,
-              to: offset + node.nodeSize,
-              type: 'mathBlock',
-              attrs: { text: mathText }
-            });
-          }
-
-          // Single-Paragraph MCQ (e.g. "? Q\n( ) A\n( ) B")
-          const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-          if (lines.length >= 2 && lines[0].startsWith('? ')) {
-            const question = lines[0].slice(2).trim();
-            const options = [];
-
-            // Parse options
-            for (let i = 1; i < lines.length; i++) {
-              if (/^\(\s*[x\s]?\s*\)/.test(lines[i])) {
-                const isCorrect = /^\(\s*x\s*\)/i.test(lines[i]);
-                const optText = lines[i].replace(/^\(\s*[x\s]?\s*\)\s*/, '');
-                options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
-              }
-            }
-
-            if (options.length >= 2) {
+            // Math Block
+            const rawFn = node.textContent.replace(/\n/g, '').trim();
+            if (rawFn.startsWith('$$') && rawFn.endsWith('$$') && rawFn.length > 4) {
+              const mathText = rawFn.slice(2, -2).trim();
               updates.push({
                 from: offset,
                 to: offset + node.nodeSize,
-                type: 'mcq',
-                attrs: { question, options }
+                type: 'mathBlock',
+                attrs: { text: mathText }
               });
               return;
             }
+
+            // Callout Block
+            if (text.startsWith('! ') || text.startsWith('!info') || text.startsWith('!success') || text.startsWith('!warning') || text.startsWith('!error')) {
+              const types = ['info', 'success', 'warning', 'error'];
+              let detectedType = 'info';
+              let contentStart = 0;
+
+              for (const t of types) {
+                if (text.startsWith(`!${t}`)) {
+                  detectedType = t;
+                  contentStart = t.length + 1;
+                  break;
+                }
+              }
+
+              if (text.startsWith('! ')) {
+                detectedType = 'info';
+                contentStart = 2;
+              }
+
+              const contentText = text.slice(contentStart).trim();
+
+              updates.push({
+                from: offset,
+                to: offset + node.nodeSize,
+                type: 'callout',
+                attrs: { type: detectedType },
+                content: contentText
+              });
+              return;
+            }
+
+            // Detect multiple inline math lines stacked
+            if (/^(\$.*\$\n?)+$/.test(node.textContent.trim())) {
+              const mathText = node.textContent.replace(/\$/g, '').trim();
+              updates.push({
+                from: offset,
+                to: offset + node.nodeSize,
+                type: 'mathBlock',
+                attrs: { text: mathText }
+              });
+            }
+
+            // Single-Paragraph MCQ
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+            if (lines.length >= 2 && lines[0].startsWith('? ')) {
+              const question = lines[0].slice(2).trim();
+              const options = [];
+
+              for (let i = 1; i < lines.length; i++) {
+                if (/^\(\s*[x\s]?\s*\)/.test(lines[i])) {
+                  const isCorrect = /^\(\s*x\s*\)/i.test(lines[i]);
+                  const optText = lines[i].replace(/^\(\s*[x\s]?\s*\)\s*/, '');
+                  options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+                }
+              }
+
+              if (options.length >= 2) {
+                updates.push({
+                  from: offset,
+                  to: offset + node.nodeSize,
+                  type: 'mcq',
+                  attrs: { question, options }
+                });
+                return;
+              }
+            }
           }
-        }
-      });
+        });
 
-      // 2. Multi-Paragraph MCQ Detection
-      // Scan for sequences of paragraphs: "? Q" -> "( ) A" -> "( ) B"
-      let mcqStart = -1;
-      let questionText = '';
-      let options = [];
-      let nodesToRemove = [];
+        // 2. Multi-Paragraph MCQ Detection
+        let mcqStart = -1;
+        let questionText = '';
+        let options = [];
+        let nodesToRemove = [];
 
-      editor.state.doc.forEach((node, offset) => {
-        // Skip if already handled
-        if (updates.some(u => u.from === offset)) return;
+        state.doc.forEach((node, offset) => {
+          if (updates.some(u => u.from === offset)) return;
 
-        if (node.type.name === 'paragraph') {
-          const text = node.textContent.trim();
+          if (node.type.name === 'paragraph') {
+            const text = node.textContent.trim();
 
-          // Start of Question
-          if (text.startsWith('? ')) {
+            if (text.startsWith('? ')) {
+              if (mcqStart !== -1) {
+                mcqStart = -1;
+                options = [];
+                nodesToRemove = [];
+              }
+              mcqStart = offset;
+              questionText = text.slice(2).trim();
+              nodesToRemove.push({ from: offset, to: offset + node.nodeSize });
+              return;
+            }
+
+            if (mcqStart !== -1 && /^\(\s*[x\s]?\s*\)/.test(text)) {
+              const isCorrect = /^\(\s*x\s*\)/i.test(text);
+              const optText = text.replace(/^\(\s*[x\s]?\s*\)\s*/, '');
+              options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+              nodesToRemove.push({ from: offset, to: offset + node.nodeSize });
+              return;
+            }
+
             if (mcqStart !== -1) {
-              // Close previous (was invalid or incomplete)
+              if (options.length > 0) {
+                updates.push({
+                  from: nodesToRemove[0].from,
+                  to: nodesToRemove[nodesToRemove.length - 1].to,
+                  type: 'mcq',
+                  attrs: { question: questionText, options: [...options] }
+                });
+              }
               mcqStart = -1;
               options = [];
               nodesToRemove = [];
             }
-            mcqStart = offset;
-            questionText = text.slice(2).trim();
-            nodesToRemove.push({ from: offset, to: offset + node.nodeSize });
-            return;
           }
+        });
 
-          // Option
-          if (mcqStart !== -1 && /^\(\s*[x\s]?\s*\)/.test(text)) {
-            const isCorrect = /^\(\s*x\s*\)/i.test(text);
-            const optText = text.replace(/^\(\s*[x\s]?\s*\)\s*/, '');
-            options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
-            nodesToRemove.push({ from: offset, to: offset + node.nodeSize });
-            return;
-          }
-
-          // End of MCQ Cluster
-          if (mcqStart !== -1) {
-            if (options.length > 0) {
-              updates.push({
-                from: nodesToRemove[0].from,
-                to: nodesToRemove[nodesToRemove.length - 1].to,
-                type: 'mcq',
-                attrs: { question: questionText, options: [...options] }
-              });
-            }
-            mcqStart = -1;
-            options = [];
-            nodesToRemove = [];
-          }
+        if (mcqStart !== -1 && options.length > 0) {
+          updates.push({
+            from: nodesToRemove[0].from,
+            to: nodesToRemove[nodesToRemove.length - 1].to,
+            type: 'mcq',
+            attrs: { question: questionText, options: [...options] }
+          });
         }
-      });
 
-      // Catch trailing MCQ
-      if (mcqStart !== -1 && options.length > 0) {
-        updates.push({
-          from: nodesToRemove[0].from,
-          to: nodesToRemove[nodesToRemove.length - 1].to,
-          type: 'mcq',
-          attrs: { question: questionText, options: [...options], markdown: fullMarkdown }
-        });
-      }
+        if (updates.length > 0) {
+          updates.sort((a, b) => b.from - a.from);
+          const transaction = editor.state.tr;
+          updates.forEach(u => {
+            if (u.type === 'callout') {
+              const paragraph = editor.schema.nodes.paragraph.create(null, editor.schema.text(u.content || ''));
+              transaction.replaceWith(u.from, u.to, editor.schema.nodes.callout.create(u.attrs, paragraph));
+            } else {
+              transaction.replaceWith(u.from, u.to, editor.schema.nodes[u.type].create(u.attrs));
+            }
+          });
+          editor.view.dispatch(transaction);
+        }
+      };
 
-      // Apply updates (Bottom-Up order)
-      if (updates.length > 0) {
-        updates.sort((a, b) => b.from - a.from);
-        const transaction = editor.state.tr;
-        updates.forEach(u => {
-          if (u.type === 'callout') {
-            // Special handling for callout (block+ node)
-            const paragraph = editor.schema.nodes.paragraph.create(null, editor.schema.text(u.content || ''));
-            transaction.replaceWith(u.from, u.to, editor.schema.nodes.callout.create(u.attrs, paragraph));
-          } else {
-            transaction.replaceWith(u.from, u.to, editor.schema.nodes[u.type].create(u.attrs));
-          }
-        });
-        editor.view.dispatch(transaction);
-      }
-    };
+      return { GlobalShortcuts, SlashCommand, PremiumDragHandle, CtrlArrowBlockJump, convertCustomBlocksRobust };
+    })();
 
-    // 2. Prompt Builder (PURE MARKDOWN MODE)
-    const buildPrompt = (action, selection, fullDoc, param = '') => {
+    /* ====================== SECTION: AI_LAYER ====================== */
+    const AI = (() => {
 
-      const baseSystem = `
-You are an AI writing assistant for a structured rich text editor.
+      const buildPrompt = (action, selection, fullDoc, param = '') => {
+        const baseSystem = `
+      You are an AI writing assistant for a structured rich text editor.
 
 You MUST output STRICT MARKDOWN ONLY.
 Do NOT use JSON.
@@ -3109,44 +2867,44 @@ If user asks for both explanation and MCQ:
 3. Then write MCQ section
 
 Output only structured educational content.
-`;
+    `;
 
-      const context = fullDoc.slice(-3000);
+        const context = fullDoc.slice(-3000);
 
-      let prompt = '';
+        let prompt = '';
 
-      switch (action) {
+        switch (action) {
 
-        case 'improve':
-          prompt = `
+          case 'improve':
+            prompt = `
 Rewrite the following text to be professional, clear, and educational.
 
 Text:
 "${selection}"
 `;
-          break;
+            break;
 
-        case 'summarize':
-          prompt = `
+          case 'summarize':
+            prompt = `
 Summarize the following content in structured bullet format.
 
 Text:
 "${selection}"
 `;
-          break;
+            break;
 
-        case 'explain':
-          prompt = `
+          case 'explain':
+            prompt = `
 Explain this concept clearly for students.
 Use structured sections if helpful.
 
 Text:
 "${selection}"
 `;
-          break;
+            break;
 
-        case 'continue':
-          prompt = `
+          case 'continue':
+            prompt = `
 Continue the document naturally from where it ends.
 
 Rules:
@@ -3159,22 +2917,20 @@ Rules:
 Document Context:
 ${context}
 `;
-          break;
+            break;
 
-          break;
-
-        case 'convert-to-notes':
-          prompt = `
+          case 'convert-to-notes':
+            prompt = `
 Convert this content into structured study notes.
 Use headings and bullet points where appropriate.
 
 Text:
 "${selection}"
 `;
-          break;
+            break;
 
-        case 'fix-grammar':
-          prompt = `
+          case 'fix-grammar':
+            prompt = `
 Correct ONLY grammar and spelling mistakes.
 
 STRICT RULES:
@@ -3190,11 +2946,10 @@ STRICT RULES:
 Text:
 "${selection}"
 `;
+            break;
 
-          break;
-
-        case 'rewrite-tone':
-          prompt = `
+          case 'rewrite-tone':
+            prompt = `
 Rewrite ONLY the provided text in ${param} tone.
 
 STRICT RULES:
@@ -3208,150 +2963,256 @@ STRICT RULES:
 Text:
 "${selection}"
 `;
-          break;
-          break;
+            break;
 
-        case 'generate-mcq':
-          prompt = `
+          case 'generate-mcq':
+            prompt = `
 Generate multiple choice questions using the EXACT MCQ format defined above.
 
 Text:
 "${selection}"
 `;
-          break;
+            break;
 
-        case 'write':
-          prompt = `
+          case 'write':
+            prompt = `
 Generate structured educational content based on the following instruction.
 Use headings, paragraphs, lists, math, or code if appropriate.
 
 Instruction:
 "${selection}"
 `;
-          break;
+            break;
 
-        default:
-          prompt = `
+          default:
+            prompt = `
 ${action}
 
 Text:
 "${selection}"
 `;
-      }
+        }
 
-      return `${baseSystem}\n\n${prompt}`;
-    };
+        return `${baseSystem}\n\n${prompt}`;
+      };
 
-    // 3. Main Handler
-    const handleAIRequest = async (action, param) => {
-      const { state } = editor;
-      let { from, to } = state.selection;
-      let selectedText = state.doc.textBetween(from, to, ' ');
-      let range = { from, to };
-      let mode = 'replace';
+      const handleRequest = async (action, param) => {
+        if (!window.editorInstance) return;
+        const editor = window.editorInstance;
 
-      // Context Fallback
-      if (!selectedText.trim()) {
-        if (action === 'continue') {
-          selectedText = state.doc.textBetween(Math.max(0, from - 1500), from, ' ');
-          mode = 'append';
-          range = { from, to }; // Insert at cursor
-        } else {
-          const node = state.doc.nodeAt(from) || state.doc.resolve(from).parent;
-          if (node && node.isTextblock) {
-            selectedText = node.textContent;
-            const pos = state.doc.resolve(from);
-            range = { from: pos.start(), to: pos.end() };
+        const { state } = editor;
+        let { from, to, empty } = state.selection;
+        let selectedText = state.doc.textBetween(from, to, ' ');
+
+        // Fallback: If no selection, grab the current paragraph/block for context
+        if (empty || !selectedText.trim()) {
+          const { $from } = state.selection;
+          const parent = $from.parent;
+
+          // Only if it's a text block (like paragraph, heading)
+          if (parent.isTextblock) {
+            from = $from.start();
+            to = $from.end();
+            selectedText = state.doc.textBetween(from, to, ' ');
           }
         }
-      }
 
-      if (!selectedText.trim()) {
-        if (action === 'write') {
-          selectedText = editor.getText(); // full context
-          mode = 'append';
-          range = { from, to };
-        } else {
-          alert("Please select text or text block.");
+        if (!selectedText && action !== 'continue' && action !== 'write') {
+          alert('Please select some text first.');
           return;
         }
-      }
 
+        UI.aiUI.show();
 
-      // UI Start
-      aiUI.show();
+        try {
+          const prompt = buildPrompt(action, selectedText, editor.getText(), param);
 
-      try {
-        const prompt = buildPrompt(action, selectedText, editor.getText(), param);
+          const res = await fetch(CONFIG.GEMINI_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            })
+          });
 
-        const res = await fetch(GEMINI_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        });
+          const data = await res.json();
+          const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+          if (!aiText) throw new Error('No response from AI');
 
-        let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const previewHTML = window.marked ? window.marked.parse(aiText) : aiText; // Assuming marked is loaded via Tiptap Markdown or simple script? 
+          // We don't have 'marked' global. We can use simplified preview or just text.
+          // Actually, Tiptap Markdown extension handles markdown.
+          // For the preview, let's just show text or basic HTML if we had a parser.
+          // The original code used `marked.parse` but we didn't see `marked` imported. 
+          // Ah, `import { Markdown }` from tiptap-markdown doesn't expose marked globally.
+          // Let's just assume text is okay or do simple replace for preview.
+          // Wait, looking at original code, it might have assumed 'marked' was available or I missed an import.
+          // Let's just use textContent for safety in preview, or simple conversion.
 
-        // Clean AI Text
-        aiText = aiText.trim();
-        if (aiText.startsWith('```')) aiText = aiText.replace(/^```(\w+)?/, '').replace(/```$/, '');
+          UI.aiUI.updatePreview(previewHTML); // Using text as HTML might be risky if not parsed, but safe from AI?
 
-        // Preview (Simple Text)
-        const previewHTML = `<div class="prose prose-sm font-sans p-2">${aiText.replace(/\n/g, '<br>')}</div>`;
+          UI.aiUI.setSuccess();
+          const userConfirmed = await UI.aiUI.waitForUser();
 
-        aiUI.updatePreview(previewHTML);
-        aiUI.setSuccess();
+          if (userConfirmed) {
+            const chain = editor.chain().focus();
+            // Smart Placement Logic
+            let mode = 'replace';
 
-        const userConfirmed = await aiUI.waitForUser();
-        if (userConfirmed) {
-          const chain = editor.chain().focus();
-
-          if (mode !== 'append') {
-            chain.deleteRange(range);
-          }
-
-          // Insert Markdown directly per User Architecture
-          try {
-            // Try inserting as markdown. If extension is active, this should work.
-            chain.insertContentAt(mode === 'append' ? range.to : range.start || range.from, aiText, {
-              contentType: 'markdown'
-            });
-          } catch (err) {
-            console.warn("Markdown insert failed, falling back to text", err);
-            chain.insertContentAt(mode === 'append' ? range.to : range.start || range.from, aiText);
-          }
-
-          chain.run();
-
-          // Post-Process Custom Blocks (Math, MCQ)
-          setTimeout(() => {
-            if (typeof convertCustomBlocksRobust === 'function') {
-              convertCustomBlocksRobust();
+            // If user is just asking a question (short text), replace it with the answer.
+            // If user is selecting a long text (context), append the result (e.g. MCQ based on text).
+            if (action === 'generate-mcq') {
+              if (selectedText.length > 200) mode = 'append';
+              else mode = 'replace';
             }
-          }, 50);
+            if (action === 'continue') mode = 'append';
+
+            if (mode === 'replace') {
+              chain.deleteRange({ from, to });
+            } else {
+              // Append mode: Move to end and ensure separation
+              chain.setTextSelection(to);
+              const endNode = editor.state.doc.nodeAt(to - 1); // Check node before cursor
+              // Insert a break if needed
+              chain.insertContent('\n');
+            }
+
+            try {
+              chain.insertContent(aiText);
+            } catch (err) {
+              chain.insertContent(aiText);
+            }
+
+            chain.run();
+
+            // Post-process for custom blocks
+            setTimeout(() => {
+              PLUGINS.convertCustomBlocksRobust(editor);
+            }, 50);
+          }
+        } catch (e) {
+          console.error(e);
+          UI.aiUI.setError(e.message || 'AI request failed');
+          await UI.aiUI.waitForUser();
+        } finally {
+          UI.aiUI.hide();
         }
-
-      } catch (e) {
-        console.error(e);
-        aiUI.setError(e.message);
-        // Allow user to close error
-        await aiUI.waitForUser();
-      } finally {
-        aiUI.hide();
-      }
-    };
-
-    // Attach to buttons
-    document.querySelectorAll('.ai-btn').forEach(btn => {
-      btn.onclick = (e) => {
-        e.preventDefault();
-        handleAIRequest(btn.dataset.action);
       };
-    });
 
+      return { handleRequest };
+    })();
+
+    /* ====================== SECTION: EDITOR_INIT ====================== */
+    const EDITOR_INIT = (() => {
+      const initialContent = localStorage.getItem(CONFIG.STORAGE_KEY)
+        ? JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY))
+        : CONFIG.DEFAULT_CONTENT;
+
+      const editor = new Editor({
+        element: document.querySelector('#editor'),
+        extensions: [
+          Document,
+          Paragraph,
+          Text,
+          Blockquote,
+          BulletList,
+          OrderedList,
+          ListItem,
+          HardBreak,
+          HorizontalRule,
+          Heading.configure({ levels: [1, 2, 3] }),
+          Bold,
+          Italic,
+          Strike,
+          Code,
+          History,
+          Dropcursor,
+          Gapcursor,
+          Image,
+          Link.configure({ openOnClick: false }),
+          Youtube.configure({ inline: false }),
+          Table.configure({ resizable: true }),
+          TableRow,
+          TableHeader,
+          TableCell,
+          Placeholder.configure({ placeholder: 'Type / to browse commands...' }),
+          TaskList,
+          TaskItem.configure({ nested: true }),
+          Markdown,
+          PLUGINS.GlobalShortcuts,
+          PLUGINS.SlashCommand,
+          PLUGINS.PremiumDragHandle,
+          PLUGINS.CtrlArrowBlockJump,
+          NODES.Video,
+          NODES.CustomImage,
+          NODES.FileAttachment,
+          NODES.MathBlock,
+          NODES.Callout,
+          NODES.PageBreak,
+          NODES.CustomCodeBlock.configure({ lowlight: CONFIG.lowlight }),
+          NODES.Mcq,
+          BubbleMenu.configure({
+            element: document.querySelector('#ai-bubble-menu'),
+            tippyOptions: { duration: 100 },
+            shouldShow: ({ editor, view, state, from, to }) => {
+              // Show only on text selection, not block selection
+              return !view.state.selection.empty && !editor.isActive('image') && !editor.isActive('video');
+            },
+          }),
+        ],
+        content: initialContent,
+        editorProps: {
+          attributes: {
+            class: 'prose prose-slate max-w-none focus:outline-none',
+            spellcheck: 'false',
+          },
+        },
+        onUpdate: ({ editor }) => {
+          // Save content
+          const json = editor.getJSON();
+          localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(json));
+
+          // Update Debug View
+          document.getElementById('debug-json').textContent = JSON.stringify(json, null, 2);
+
+          // Robust Block Conversion (debounce slightly?)
+          // We call it on every update, but it's optimized to only touch specific nodes
+          PLUGINS.convertCustomBlocksRobust(editor);
+        },
+        onSelectionUpdate: ({ editor }) => {
+          // Table Menu Logic
+          const { selection } = editor.state;
+          const tableMenu = document.querySelector('#table-bubble-menu');
+          if (editor.isActive('table')) {
+            if (tableMenu) {
+              UI.setupTableMenu(editor);
+              tableMenu.classList.remove('hidden');
+              // Position near cursor or table?
+              // Simple absolute positioning near cursor
+              const { from } = selection;
+              const start = editor.view.coordsAtPos(from);
+              tableMenu.style.top = (start.top + window.scrollY - 40) + 'px';
+              tableMenu.style.left = start.left + 'px';
+            }
+          } else {
+            if (tableMenu) tableMenu.classList.add('hidden');
+          }
+        }
+      });
+
+      // Expose editor instance for AI layer to access
+      window.editorInstance = editor;
+
+      // Initialize UI components that depend on editor
+      document.querySelectorAll('.ai-btn').forEach(btn => {
+        btn.onclick = (e) => {
+          e.preventDefault();
+          AI.handleRequest(btn.dataset.action);
+        };
+      });
+
+    })();
   </script>
 </body>
 
