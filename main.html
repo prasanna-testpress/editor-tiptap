@@ -923,22 +923,17 @@
           {
             type: 'heading',
             attrs: { level: 1 },
-            content: [{ type: 'text', text: 'Premium Editor' }]
+            content: [{ type: 'text', text: 'Welcome to the Premium Editor' }]
           },
           {
             type: 'paragraph',
             content: [
-              { type: 'text', text: 'This is a polished TipTap editor with ' },
-              { type: 'text', marks: [{ type: 'bold' }], text: 'Code highlighting' },
+              { type: 'text', text: 'This editor supports ' },
+              { type: 'text', marks: [{ type: 'bold' }], text: 'Markdown' },
               { type: 'text', text: ', ' },
-              { type: 'text', marks: [{ type: 'bold' }], text: 'Math' },
-              { type: 'text', text: ' support, and better UI.' }
+              { type: 'text', marks: [{ type: 'italic' }], text: 'Rich Text' },
+              { type: 'text', text: ', and powerful custom blocks.' }
             ]
-          },
-          {
-            type: 'codeBlock',
-            attrs: { language: 'javascript' },
-            content: [{ type: 'text', text: "console.log('Hello World');" }]
           },
           {
             type: 'callout',
@@ -946,11 +941,145 @@
             content: [{
               type: 'paragraph',
               content: [
-                { type: 'text', text: 'Try typing ' },
+                { type: 'text', text: 'Tip: Type ' },
                 { type: 'text', marks: [{ type: 'code' }], text: '/' },
-                { type: 'text', text: ' to see the grouped menu.' }
+                { type: 'text', text: ' to browse the command menu.' }
               ]
             }]
+          },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Math Equations' }]
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'You can write LaTeX equations easily:' }]
+          },
+          {
+            type: 'mathBlock',
+            attrs: { text: 'E = mc^2' }
+          },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Code Blocks' }]
+          },
+          {
+            type: 'codeBlock',
+            attrs: { language: 'python' },
+            content: [{ type: 'text', text: "def hello_world():\n    print('Hello from Python!')" }]
+          },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Interactive MCQs' }]
+          },
+          {
+            type: 'mcq',
+            attrs: {
+              question: 'What is the capital of France?',
+              options: [
+                { id: 'opt1', text: 'London', isCorrect: false },
+                { id: 'opt2', text: 'Paris', isCorrect: true },
+                { id: 'opt3', text: 'Berlin', isCorrect: false }
+              ]
+            }
+          },
+          {
+            type: 'heading',
+            attrs: { level: 2 },
+            content: [{ type: 'text', text: 'Commands & Shortcuts' }]
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Here are the essential shortcuts to help you write faster:' }]
+          },
+          {
+            type: 'table',
+            content: [
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Action' }] }] },
+                  { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Trigger / Shortcut' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Open Command Menu' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '/' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Insert Math Block' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '$$' }, { type: 'text', text: ' (at start of line)' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bold / Italic' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: 'Ctrl+B' }, { type: 'text', text: ' / ' }, { type: 'text', marks: [{ type: 'code' }], text: 'Ctrl+I' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Code Block' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '```' }, { type: 'text', text: ' (triple backtick)' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'AI Menu' }] }] },
+                  {
+                    type: 'tableCell', content: [{
+                      type: 'paragraph',
+                      content: [
+                        { type: 'text', text: 'Select text to access: ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Improve' },
+                        { type: 'text', text: ', ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Summarize' },
+                        { type: 'text', text: ', ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Explain' },
+                        { type: 'text', text: ', ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Fix Grammar' },
+                        { type: 'text', text: ', ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Rewrite Tone' },
+                        { type: 'text', text: ', or ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Generate MCQs' }
+                      ]
+                    }]
+                  }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Callout Block' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'code' }], text: '!info' }, { type: 'text', text: ', ' }, { type: 'text', marks: [{ type: 'code' }], text: '!success' }, { type: 'text', text: ', ' }, { type: 'text', marks: [{ type: 'code' }], text: '!warning' }, { type: 'text', text: ', ' }, { type: 'text', marks: [{ type: 'code' }], text: '!error' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'MCQ Block' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Use ' }, { type: 'text', marks: [{ type: 'code' }], text: '/' }, { type: 'text', text: ' menu or type ' }, { type: 'text', marks: [{ type: 'code' }], text: '/mcq' }] }] }
+                ]
+              },
+              {
+                type: 'tableRow',
+                content: [
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Move Blocks' }] }] },
+                  { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Drag the ' }, { type: 'text', marks: [{ type: 'code' }], text: '⋮⋮' }, { type: 'text', text: ' handle on left' }] }] }
+                ]
+              }
+            ]
           }
         ]
       };
