@@ -2160,11 +2160,6 @@
             'Mod-Shift-h': () => this.editor.commands.setHorizontalRule(),
 
             // Block Insertion
-            'Ctrl-Alt-m': () => {
-              this.editor.chain().focus().insertContent({ type: 'mcq', attrs: { question: '' } }).run();
-              return true;
-            },
-            'Ctrl-Alt-e': () => this.editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: '' } }).run(),
             'Ctrl-Alt-c': () => this.editor.chain().focus().toggleCodeBlock().run(),
             'Ctrl-Alt-t': () => this.editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
             'Ctrl-Alt-i': () => this.editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph' }] }).run(),
@@ -2266,7 +2261,7 @@
             { title: 'Table', icon: '▦', shortcut: 'Ctrl+Alt+T', action: editor => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
             { title: 'Code Block', icon: '{ }', shortcut: 'Ctrl+Alt+C', action: editor => editor.chain().focus().toggleCodeBlock().run() },
             { title: 'Math Equation', description: 'Insert a block equation (LaTeX)', icon: '∑', shortcut: 'Ctrl+Alt+E', action: editor => editor.chain().focus().insertContent({ type: 'mathBlock', attrs: { text: 'E = mc^2' } }).run() },
-            { title: 'Info Callout', icon: '💡', shortcut: 'Ctrl+Alt+I', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Enter information here...' }] }] }).run() },
+            { title: 'Info Callout', icon: '💡', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'info' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Enter information here...' }] }] }).run() },
             { title: 'Success Callout', icon: '✅', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'success' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task completed successfully!' }] }] }).run() },
             { title: 'Warning Callout', icon: '⚠️', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'warning' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please be careful with this action.' }] }] }).run() },
             { title: 'Error Callout', icon: '⛔', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'error' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An error occurred. Please check your input.' }] }] }).run() },
