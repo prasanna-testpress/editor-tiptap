@@ -1348,6 +1348,9 @@
           },
           selectNode: () => {
             container.classList.add('ProseMirror-selectednode');
+            setTimeout(() => {
+              toggleEdit(true);
+            }, 10);
           },
           deselectNode: () => {
             container.classList.remove('ProseMirror-selectednode');
