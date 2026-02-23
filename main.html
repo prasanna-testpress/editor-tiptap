@@ -2015,7 +2015,240 @@
         };
       };
 
-      return { createResizable, MathBlockView, CalloutView, CodeBlockView, McqView, FileAttachmentView };
+      const AiBlockView = ({ node, getPos, editor }) => {
+        const dom = document.createElement('div');
+        dom.className = 'ai-block-container';
+        dom.style.cssText = `
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 12px;
+          margin: 16px 0;
+          background: #f8fafc;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          font-family: var(--font-inter, sans-serif);
+        `;
+
+        const textarea = document.createElement('textarea');
+        textarea.placeholder = 'Ask AI to write something...';
+        textarea.value = node.attrs.prompt;
+        textarea.style.cssText = `
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #cbd5e1;
+          border-radius: 6px;
+          resize: vertical;
+          min-height: 60px;
+          font-family: inherit;
+          font-size: 14px;
+          outline: none;
+          background: white;
+        `;
+        textarea.addEventListener('focus', () => {
+          textarea.style.borderColor = '#3b82f6';
+          textarea.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+        });
+        textarea.addEventListener('blur', () => {
+          textarea.style.borderColor = '#cbd5e1';
+          textarea.style.boxShadow = 'none';
+        });
+
+        const generateBtn = document.createElement('button');
+        generateBtn.textContent = '✨ Generate';
+        generateBtn.style.cssText = `
+          align-self: flex-end;
+          padding: 6px 14px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+          transition: background 0.2s;
+        `;
+        generateBtn.onmouseover = () => { if (!node.attrs.loading) generateBtn.style.background = '#2563eb'; };
+        generateBtn.onmouseout = () => { if (!node.attrs.loading) generateBtn.style.background = '#3b82f6'; };
+
+        const resultContainer = document.createElement('div');
+        resultContainer.style.cssText = `
+          display: none;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 8px;
+          border-top: 1px solid #e2e8f0;
+          padding-top: 12px;
+        `;
+
+        const preview = document.createElement('div');
+        preview.style.cssText = `
+          padding: 12px;
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 14px;
+          line-height: 1.6;
+          max-height: 300px;
+          overflow-y: auto;
+          white-space: pre-wrap;
+        `;
+
+        const actionRow = document.createElement('div');
+        actionRow.style.cssText = `
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+        `;
+
+        const acceptBtn = document.createElement('button');
+        acceptBtn.textContent = 'Accept';
+        acceptBtn.style.cssText = `
+          padding: 6px 14px;
+          background: #10b981;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+        `;
+
+        const discardBtn = document.createElement('button');
+        discardBtn.textContent = 'Discard';
+        discardBtn.style.cssText = `
+          padding: 6px 14px;
+          background: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 500;
+        `;
+
+        actionRow.append(acceptBtn, discardBtn);
+        resultContainer.append(preview, actionRow);
+        dom.append(textarea, generateBtn, resultContainer);
+
+        const syncNodeState = (updates) => {
+          if (typeof getPos === 'function') {
+            editor.commands.command(({ tr }) => {
+              tr.setNodeMarkup(getPos(), undefined, { ...node.attrs, ...updates });
+              return true;
+            });
+          }
+        };
+
+        textarea.addEventListener('input', (e) => {
+          let timer;
+          clearTimeout(timer);
+          timer = setTimeout(() => syncNodeState({ prompt: e.target.value }), 300);
+        });
+
+        generateBtn.addEventListener('click', async () => {
+          if (!textarea.value.trim() || node.attrs.loading) return;
+          syncNodeState({ loading: true });
+
+          try {
+            const res = await fetch(CONFIG.GEMINI_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: textarea.value.trim() }] }]
+              })
+            });
+            const data = await res.json();
+            const generated = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+            syncNodeState({ loading: false, result: generated });
+          } catch (error) {
+            syncNodeState({ loading: false, result: `Error generating content: ${error.message}` });
+          }
+        });
+
+        acceptBtn.addEventListener('click', () => {
+          if (typeof getPos() === 'number') {
+            const pos = getPos();
+            editor.commands.command(({ tr }) => {
+              tr.delete(pos, pos + node.nodeSize);
+              return true;
+            });
+            editor.chain().focus().insertContent(node.attrs.result).run();
+          }
+        });
+
+        discardBtn.addEventListener('click', () => {
+          if (typeof getPos() === 'number') {
+            editor.commands.deleteRange({ from: getPos(), to: getPos() + node.nodeSize });
+          }
+        });
+
+        const updateState = () => {
+          textarea.value = node.attrs.prompt;
+
+          if (node.attrs.loading) {
+            generateBtn.textContent = 'Generating...';
+            generateBtn.disabled = true;
+            generateBtn.style.opacity = '0.7';
+            generateBtn.style.cursor = 'wait';
+            textarea.disabled = true;
+          } else {
+            generateBtn.textContent = '✨ Generate';
+            generateBtn.disabled = false;
+            generateBtn.style.opacity = '1';
+            generateBtn.style.cursor = 'pointer';
+            textarea.disabled = false;
+          }
+
+          if (node.attrs.result && !node.attrs.loading) {
+            resultContainer.style.display = 'flex';
+            generateBtn.style.display = 'none';
+            preview.textContent = node.attrs.result;
+          } else {
+            resultContainer.style.display = 'none';
+            generateBtn.style.display = 'block';
+          }
+        };
+
+        updateState();
+
+        setTimeout(() => {
+          if (!node.attrs.prompt && !node.attrs.result && !node.attrs.loading) {
+            textarea.focus();
+          }
+        }, 50);
+
+        return {
+          dom,
+          ignoreMutation: (mutation) => {
+            if (dom.contains(mutation.target)) return true;
+            return false;
+          },
+          stopEvent: (event) => {
+            if (['INPUT', 'BUTTON', 'TEXTAREA'].includes(event.target.tagName)) return true;
+            return false;
+          },
+          update: (updatedNode) => {
+            if (updatedNode.type.name !== 'aiBlock') return false;
+            node = updatedNode;
+            updateState();
+            return true;
+          },
+          selectNode: () => {
+            dom.style.borderColor = '#3b82f6';
+            dom.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+          },
+          deselectNode: () => {
+            dom.style.borderColor = '#e2e8f0';
+            dom.style.boxShadow = 'none';
+          },
+          destroy: () => {
+            dom.remove();
+          }
+        };
+      };
+
+      return { createResizable, MathBlockView, CalloutView, CodeBlockView, McqView, FileAttachmentView, AiBlockView };
 
     })();
 
@@ -2196,7 +2429,7 @@
           return [{ tag: 'div[data-type="callout"]', contentElement: '.callout-content' }]
         },
         renderHTML({ HTMLAttributes }) {
-          return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout-${HTMLAttributes.type}`, 'data-type': 'callout' }),
+          return ['div', mergeAttributes(HTMLAttributes, { class: `callout callout - ${HTMLAttributes.type}`, 'data-type': 'callout' }),
             ['div', { class: 'callout-content' }, 0]
           ]
         }
@@ -2280,7 +2513,35 @@
         }
       });
 
-      return { Video, CustomImage, FileAttachment, MathBlock, Callout, PageBreak, CustomCodeBlock, Mcq };
+      const AiBlock = Node.create({
+        name: 'aiBlock',
+        group: 'block',
+        atom: true,
+        draggable: true,
+        selectable: true,
+
+        addAttributes() {
+          return {
+            prompt: { default: '' },
+            result: { default: '' },
+            loading: { default: false }
+          };
+        },
+
+        parseHTML() {
+          return [{ tag: 'div[data-type="ai-block"]' }];
+        },
+
+        renderHTML({ HTMLAttributes }) {
+          return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'ai-block' })];
+        },
+
+        addNodeView() {
+          return NODE_VIEWS.AiBlockView;
+        }
+      });
+
+      return { Video, CustomImage, FileAttachment, MathBlock, Callout, PageBreak, CustomCodeBlock, Mcq, AiBlock };
     })();
 
     /* ====================== SECTION: PLUGINS ====================== */
@@ -2409,7 +2670,8 @@
             { title: 'Success Callout', icon: '✅', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'success' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task completed successfully!' }] }] }).run() },
             { title: 'Warning Callout', icon: '⚠️', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'warning' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please be careful with this action.' }] }] }).run() },
             { title: 'Error Callout', icon: '⛔', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'error' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An error occurred. Please check your input.' }] }] }).run() },
-            { title: 'Page Break', icon: '✂️', shortcut: 'Ctrl+Alt+P', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
+            { title: 'Page Break', icon: '✂️', shortcut: 'Ctrl+Alt+P', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() },
+            { title: 'Ask AI', description: 'Generate content with AI inline', icon: '🤖', action: editor => editor.chain().focus().insertContent({ type: 'aiBlock' }).run() }
           ]
         },
         {
@@ -2473,13 +2735,13 @@
                       const shortcutHtml = item.shortcut ? `<span class="slash-item-shortcut" style="margin-left: auto; font-size: 10px; opacity: 0.6; color: inherit;">${item.shortcut}</span>` : '';
 
                       el.innerHTML = `
-                    <div class="slash-item-icon">${item.icon}</div>
-                    <div class="slash-item-content">
-                      <div class="slash-item-title">${item.title}</div>
-                      ${item.description ? `<div class="slash-item-desc">${item.description}</div>` : ''}
-                    </div>
+            <div class="slash-item-icon">${item.icon}</div>
+            <div class="slash-item-content">
+              <div class="slash-item-title">${item.title}</div>
+              ${item.description ? `<div class="slash-item-desc">${item.description}</div>` : ''}
+            </div>
                     ${shortcutHtml}
-                  `;
+              `;
 
                       el.addEventListener('mousedown', (e) => {
                         e.preventDefault();
@@ -3289,6 +3551,7 @@ Text:
           NODES.PageBreak,
           NODES.CustomCodeBlock.configure({ lowlight: CONFIG.lowlight }),
           NODES.Mcq,
+          NODES.AiBlock,
           BubbleMenu.configure({
             element: document.querySelector('#ai-bubble-menu'),
             tippyOptions: { duration: 100 },
