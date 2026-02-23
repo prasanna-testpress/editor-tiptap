@@ -864,26 +864,6 @@
     </div>
   </div>
 
-  <!-- AI Preview Overlay -->
-  <div id="ai-preview-overlay"
-    class="hidden fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-white border border-slate-200 shadow-2xl rounded-xl w-[600px] max-w-[90vw] z-50 flex flex-col overflow-hidden">
-    <div class="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
-      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">AI Preview</span>
-      <div class="flex gap-2">
-        <span id="ai-status" class="text-xs text-blue-500 animate-pulse">Generative...</span>
-      </div>
-    </div>
-    <div id="ai-preview-content" class="p-6 max-h-[60vh] overflow-y-auto prose prose-sm">
-      <!-- AI Content Stream -->
-    </div>
-    <div class="p-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-      <button id="ai-reject"
-        class="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-200 rounded-md transition-colors">Discard</button>
-      <button id="ai-accept"
-        class="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md shadow-sm transition-colors">Accept</button>
-    </div>
-  </div>
-
   <script type="module">
     import { Editor, Node, mergeAttributes, Extension, InputRule, wrappingInputRule } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
     import Document from 'https://esm.sh/@tiptap/extension-document@2.11.5?bundle';
@@ -920,7 +900,8 @@
     import Suggestion from 'https://esm.sh/@tiptap/suggestion@2.11.5?bundle';
     import { Markdown } from 'https://esm.sh/tiptap-markdown@0.8.10?bundle';
     import { Plugin, PluginKey, NodeSelection, TextSelection } from 'https://esm.sh/prosemirror-state?bundle';
-    import { DOMSerializer } from 'https://esm.sh/prosemirror-model?bundle';
+    import { DOMSerializer, Slice, DOMParser } from 'https://esm.sh/prosemirror-model?bundle';
+    import { Mark } from 'https://esm.sh/@tiptap/core@2.11.5?bundle';
 
     /* ====================== SECTION: CONFIG ====================== */
     const CONFIG = (() => {
@@ -1187,56 +1168,6 @@
         if (e.key === 'Escape') Modal.cancel.click();
       };
 
-      // AI Preview Overlay System
-      const aiUI = {
-        overlay: document.getElementById('ai-preview-overlay'),
-        content: document.getElementById('ai-preview-content'),
-        status: document.getElementById('ai-status'),
-        acceptBtn: document.getElementById('ai-accept'),
-        rejectBtn: document.getElementById('ai-reject'),
-        resolvePromise: null,
-
-        show() {
-          this.overlay.classList.remove('hidden');
-          this.content.innerHTML = '';
-          this.status.textContent = 'Thinking...';
-          this.status.className = 'text-xs text-blue-500 animate-pulse';
-          this.acceptBtn.disabled = true;
-        },
-
-        hide() {
-          this.overlay.classList.add('hidden');
-          this.resolvePromise = null;
-        },
-
-        updatePreview(html) {
-          // Use 'pre-line' whitespace style to respect line breaks from the raw text/html
-          this.content.style.whiteSpace = 'pre-wrap';
-          this.content.innerHTML = html;
-          this.content.scrollTop = this.content.scrollHeight;
-        },
-
-        setSuccess() {
-          this.status.textContent = 'Generated';
-          this.status.className = 'text-xs text-green-600 font-bold';
-          this.acceptBtn.disabled = false;
-        },
-
-        setError(msg) {
-          this.status.textContent = 'Error';
-          this.status.className = 'text-xs text-red-600 font-bold';
-          this.content.innerHTML = `<p class="text-red-500">${msg}</p>`;
-        },
-
-        async waitForUser() {
-          return new Promise((resolve) => {
-            this.resolvePromise = resolve;
-            this.acceptBtn.onclick = () => resolve(true);
-            this.rejectBtn.onclick = () => resolve(false);
-          });
-        }
-      };
-
       // Table Bubble Menu Helper
       const setupTableMenu = (editor) => {
         const tableMenuContainer = document.querySelector('#table-bubble-menu');
@@ -1264,7 +1195,7 @@
         }
       };
 
-      return { Modal, aiUI, setupTableMenu };
+      return { Modal, setupTableMenu };
     })();
 
     /* ====================== SECTION: NODE_VIEWS ====================== */
@@ -2015,273 +1946,7 @@
         };
       };
 
-      const AiBlockView = ({ node, getPos, editor }) => {
-        const dom = document.createElement('div');
-        dom.className = 'ai-block-container';
-        dom.style.cssText = `
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-          padding: 16px;
-          margin: 16px 0;
-          background: linear-gradient(to right bottom, #ffffff, #f8fafc);
-          box-shadow: 0 4px 20px -5px rgba(59, 130, 246, 0.1), 0 0 0 1px rgba(59, 130, 246, 0.05);
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          font-family: var(--font-inter, sans-serif);
-          position: relative;
-        `;
-
-        // Header with AI Icon
-        const header = document.createElement('div');
-        header.style.cssText = `
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          color: #3b82f6;
-          font-weight: 600;
-          font-size: 13px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        `;
-        header.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> AI Assistant`;
-
-        const textarea = document.createElement('textarea');
-        textarea.placeholder = 'Ask AI to write anything...';
-        textarea.value = node.attrs.prompt;
-        textarea.style.cssText = `
-          width: 100%;
-          border: 0;
-          resize: vertical;
-          min-height: 48px;
-          font-family: inherit;
-          font-size: 15px;
-          line-height: 1.5;
-          outline: none;
-          background: transparent;
-          color: #1e293b;
-          padding: 0;
-        `;
-
-        const generateBtn = document.createElement('button');
-        generateBtn.innerHTML = `✨ Generate`;
-        generateBtn.style.cssText = `
-          align-self: flex-end;
-          padding: 8px 16px;
-          background: #3b82f6;
-          color: white;
-          border: none;
-          border-radius: 20px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3);
-          transition: all 0.2s;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        `;
-        generateBtn.onmouseover = () => { if (!node.attrs.loading) { generateBtn.style.background = '#2563eb'; generateBtn.style.transform = 'translateY(-1px)'; } };
-        generateBtn.onmouseout = () => { if (!node.attrs.loading) { generateBtn.style.background = '#3b82f6'; generateBtn.style.transform = 'none'; } };
-
-        const resultContainer = document.createElement('div');
-        resultContainer.style.cssText = `
-          display: none;
-          flex-direction: column;
-          gap: 12px;
-          margin-top: 4px;
-          border-top: 1px solid #e2e8f0;
-          padding-top: 16px;
-        `;
-
-        const previewLabel = document.createElement('div');
-        previewLabel.style.cssText = `font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;`;
-        previewLabel.textContent = 'Preview';
-
-        const preview = document.createElement('div');
-        preview.style.cssText = `
-          padding: 16px;
-          background: #ffffff;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          font-size: 14.5px;
-          line-height: 1.6;
-          max-height: 350px;
-          overflow-y: auto;
-          white-space: pre-wrap;
-          color: #334155;
-          box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.02);
-        `;
-
-        const actionRow = document.createElement('div');
-        actionRow.style.cssText = `
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
-          margin-top: 4px;
-        `;
-
-        const acceptBtn = document.createElement('button');
-        acceptBtn.textContent = 'Accept';
-        acceptBtn.style.cssText = `
-          padding: 8px 16px;
-          background: #10b981;
-          color: white;
-          border: none;
-          border-radius: 20px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          transition: background 0.2s;
-          box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
-        `;
-        acceptBtn.onmouseover = () => { acceptBtn.style.background = '#059669'; };
-        acceptBtn.onmouseout = () => { acceptBtn.style.background = '#10b981'; };
-
-        const discardBtn = document.createElement('button');
-        discardBtn.textContent = 'Discard';
-        discardBtn.style.cssText = `
-          padding: 8px 16px;
-          background: transparent;
-          color: #64748b;
-          border: 1px solid #cbd5e1;
-          border-radius: 20px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          transition: all 0.2s;
-        `;
-        discardBtn.onmouseover = () => { discardBtn.style.background = '#f1f5f9'; discardBtn.style.color = '#334155'; };
-        discardBtn.onmouseout = () => { discardBtn.style.background = 'transparent'; discardBtn.style.color = '#64748b'; };
-
-        actionRow.append(discardBtn, acceptBtn);
-        resultContainer.append(previewLabel, preview, actionRow);
-        dom.append(header, textarea, generateBtn, resultContainer);
-
-        const syncNodeState = (updates) => {
-          if (typeof getPos === 'function') {
-            editor.commands.command(({ tr }) => {
-              tr.setNodeMarkup(getPos(), undefined, { ...node.attrs, ...updates });
-              return true;
-            });
-          }
-        };
-
-        textarea.addEventListener('input', (e) => {
-          let timer;
-          clearTimeout(timer);
-          timer = setTimeout(() => syncNodeState({ prompt: e.target.value }), 300);
-        });
-
-        generateBtn.addEventListener('click', async () => {
-          if (!textarea.value.trim() || node.attrs.loading) return;
-          syncNodeState({ loading: true });
-
-          try {
-            // Incorporate the global AI structure and prompt templates
-            const getDocText = typeof editor.getText === 'function' ? editor.getText() : '';
-            const prompt = (typeof AI !== 'undefined' && AI.buildPrompt)
-              ? AI.buildPrompt('write', textarea.value.trim(), getDocText)
-              : textarea.value.trim();
-
-            const res = await fetch(CONFIG.GEMINI_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
-              })
-            });
-            const data = await res.json();
-            const generated = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
-            syncNodeState({ loading: false, result: generated });
-          } catch (error) {
-            syncNodeState({ loading: false, result: `Error generating content: ${error.message}` });
-          }
-        });
-
-        acceptBtn.addEventListener('click', () => {
-          if (typeof getPos() === 'number') {
-            const pos = getPos();
-            editor.commands.command(({ tr }) => {
-              tr.delete(pos, pos + node.nodeSize);
-              return true;
-            });
-            editor.chain().focus().insertContent(node.attrs.result).run();
-          }
-        });
-
-        discardBtn.addEventListener('click', () => {
-          if (typeof getPos() === 'number') {
-            editor.commands.deleteRange({ from: getPos(), to: getPos() + node.nodeSize });
-          }
-        });
-
-        const updateState = () => {
-          textarea.value = node.attrs.prompt;
-
-          if (node.attrs.loading) {
-            generateBtn.textContent = 'Generating...';
-            generateBtn.disabled = true;
-            generateBtn.style.opacity = '0.7';
-            generateBtn.style.cursor = 'wait';
-            textarea.disabled = true;
-          } else {
-            generateBtn.textContent = '✨ Generate';
-            generateBtn.disabled = false;
-            generateBtn.style.opacity = '1';
-            generateBtn.style.cursor = 'pointer';
-            textarea.disabled = false;
-          }
-
-          if (node.attrs.result && !node.attrs.loading) {
-            resultContainer.style.display = 'flex';
-            generateBtn.style.display = 'none';
-            preview.textContent = node.attrs.result;
-          } else {
-            resultContainer.style.display = 'none';
-            generateBtn.style.display = 'block';
-          }
-        };
-
-        updateState();
-
-        setTimeout(() => {
-          if (!node.attrs.prompt && !node.attrs.result && !node.attrs.loading) {
-            textarea.focus();
-          }
-        }, 50);
-
-        return {
-          dom,
-          ignoreMutation: (mutation) => {
-            if (dom.contains(mutation.target)) return true;
-            return false;
-          },
-          stopEvent: (event) => {
-            if (['INPUT', 'BUTTON', 'TEXTAREA'].includes(event.target.tagName)) return true;
-            return false;
-          },
-          update: (updatedNode) => {
-            if (updatedNode.type.name !== 'aiBlock') return false;
-            node = updatedNode;
-            updateState();
-            return true;
-          },
-          selectNode: () => {
-            dom.style.borderColor = '#3b82f6';
-            dom.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-          },
-          deselectNode: () => {
-            dom.style.borderColor = '#e2e8f0';
-            dom.style.boxShadow = 'none';
-          },
-          destroy: () => {
-            dom.remove();
-          }
-        };
-      };
-
-      return { createResizable, MathBlockView, CalloutView, CodeBlockView, McqView, FileAttachmentView, AiBlockView };
+      return { createResizable, MathBlockView, CalloutView, CodeBlockView, McqView, FileAttachmentView };
 
     })();
 
@@ -2546,35 +2211,7 @@
         }
       });
 
-      const AiBlock = Node.create({
-        name: 'aiBlock',
-        group: 'block',
-        atom: true,
-        draggable: true,
-        selectable: true,
-
-        addAttributes() {
-          return {
-            prompt: { default: '' },
-            result: { default: '' },
-            loading: { default: false }
-          };
-        },
-
-        parseHTML() {
-          return [{ tag: 'div[data-type="ai-block"]' }];
-        },
-
-        renderHTML({ HTMLAttributes }) {
-          return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'ai-block' })];
-        },
-
-        addNodeView() {
-          return NODE_VIEWS.AiBlockView;
-        }
-      });
-
-      return { Video, CustomImage, FileAttachment, MathBlock, Callout, PageBreak, CustomCodeBlock, Mcq, AiBlock };
+      return { Video, CustomImage, FileAttachment, MathBlock, Callout, PageBreak, CustomCodeBlock, Mcq };
     })();
 
     /* ====================== SECTION: PLUGINS ====================== */
@@ -2697,8 +2334,7 @@
             { title: 'Success Callout', icon: '✅', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'success' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Task completed successfully!' }] }] }).run() },
             { title: 'Warning Callout', icon: '⚠️', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'warning' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Please be careful with this action.' }] }] }).run() },
             { title: 'Error Callout', icon: '⛔', action: editor => editor.chain().focus().insertContent({ type: 'callout', attrs: { type: 'error' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An error occurred. Please check your input.' }] }] }).run() },
-            { title: 'Page Break', icon: '✂️', shortcut: 'Ctrl+Alt+P', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() },
-            { title: 'Ask AI', description: 'Generate content with AI inline', icon: '🤖', action: editor => editor.chain().focus().insertContent({ type: 'aiBlock' }).run() }
+            { title: 'Page Break', icon: '✂️', shortcut: 'Ctrl+Alt+P', action: editor => editor.chain().focus().insertContent({ type: 'pageBreak' }).run() }
           ]
         },
         {
@@ -3120,17 +2756,40 @@
               });
             }
 
-            // Single-Paragraph MCQ
-            const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-            if (lines.length >= 2 && lines[0].startsWith('? ')) {
-              const question = lines[0].slice(2).trim();
+            // Single-Paragraph MCQ (Handling concatenated or line-broken structures)
+            if (text.startsWith('? ')) {
+              let question = '';
               const options = [];
 
-              for (let i = 1; i < lines.length; i++) {
-                if (/^\(\s*[x\s]?\s*\)/.test(lines[i])) {
-                  const isCorrect = /^\(\s*x\s*\)/i.test(lines[i]);
-                  const optText = lines[i].replace(/^\(\s*[x\s]?\s*\)\s*/, '');
-                  options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+              // Find the first option marker to split the question from options
+              const firstOptionMatch = text.match(/\(\s*[x\s]?\s*\)/i);
+
+              if (firstOptionMatch) {
+                question = text.slice(2, firstOptionMatch.index).trim();
+                const optionsStr = text.slice(firstOptionMatch.index);
+
+                // Split by option markers
+                const optionMatches = [...optionsStr.matchAll(/(?:\(\s*([x\s]?)\s*\))\s*((?:(?!\(\s*[x\s]?\s*\)).)*)/gi)];
+
+                optionMatches.forEach(match => {
+                  const isCorrect = match[1].toLowerCase() === 'x';
+                  const optText = match[2].trim();
+                  if (optText) {
+                    options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+                  }
+                });
+              } else {
+                // Try line by line fallback
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+                if (lines.length >= 2) {
+                  question = lines[0].slice(2).trim();
+                  for (let i = 1; i < lines.length; i++) {
+                    if (/^\(\s*[x\s]?\s*\)/.test(lines[i])) {
+                      const isCorrect = /^\(\s*x\s*\)/i.test(lines[i]);
+                      const optText = lines[i].replace(/^\(\s*[x\s]?\s*\)\s*/, '');
+                      options.push({ text: optText, isCorrect, id: Math.random().toString(36).slice(2) });
+                    }
+                  }
                 }
               }
 
@@ -3154,13 +2813,21 @@
         let nodesToRemove = [];
 
         state.doc.forEach((node, offset) => {
-          if (updates.some(u => u.from === offset)) return;
+          if (updates.some(u => u.from === offset || u.to === (offset + node.nodeSize))) return;
 
-          if (node.type.name === 'paragraph') {
+          if (node.type.name === 'paragraph' || node.type.name === 'text') {
             const text = node.textContent.trim();
 
             if (text.startsWith('? ')) {
               if (mcqStart !== -1) {
+                if (options.length > 0) {
+                  updates.push({
+                    from: nodesToRemove[0].from,
+                    to: nodesToRemove[nodesToRemove.length - 1].to,
+                    type: 'mcq',
+                    attrs: { question: questionText, options: [...options] }
+                  });
+                }
                 mcqStart = -1;
                 options = [];
                 nodesToRemove = [];
@@ -3179,6 +2846,22 @@
               return;
             }
 
+            // If we hit an empty line or something that isn't an option, assume MCQ is done
+            if (mcqStart !== -1 && text !== '') {
+              if (options.length > 0) {
+                updates.push({
+                  from: nodesToRemove[0].from,
+                  to: nodesToRemove[nodesToRemove.length - 1].to,
+                  type: 'mcq',
+                  attrs: { question: questionText, options: [...options] }
+                });
+              }
+              mcqStart = -1;
+              options = [];
+              nodesToRemove = [];
+            }
+          } else {
+            // Block change ends the MCQ sequence
             if (mcqStart !== -1) {
               if (options.length > 0) {
                 updates.push({
@@ -3219,7 +2902,128 @@
         }
       };
 
-      return { GlobalShortcuts, SlashCommand, PremiumDragHandle, CtrlArrowBlockJump, convertCustomBlocksRobust };
+      /* AI Suggestion Plugin Setup */
+      const aiSuggestion = Mark.create({
+        name: 'aiSuggestion',
+        parseHTML() {
+          return [{ tag: 'span[data-ai-suggestion]' }];
+        },
+        renderHTML({ HTMLAttributes }) {
+          return ['span', mergeAttributes(HTMLAttributes, {
+            'data-ai-suggestion': 'true',
+            class: 'bg-blue-100/50 border-b-2 border-blue-400'
+          }), 0];
+        }
+      });
+
+      const suggestionPluginKey = new PluginKey('aiSuggestionPlugin');
+
+      const acceptHandler = (view) => {
+        const state = suggestionPluginKey.getState(view.state);
+        if (!state || !state.active) return;
+
+        const tr = view.state.tr;
+        tr.removeMark(state.previewRange.from, state.previewRange.to, view.state.schema.marks.aiSuggestion);
+        tr.setMeta(suggestionPluginKey, { type: 'CLEAR_SUGGESTION' });
+        view.dispatch(tr);
+      };
+
+      const rejectHandler = (view) => {
+        const state = suggestionPluginKey.getState(view.state);
+        if (!state || !state.active) return;
+
+        const tr = view.state.tr;
+        try {
+          const slice = Slice.fromJSON(view.state.schema, state.originalContent);
+          tr.replace(state.previewRange.from, state.previewRange.to, slice);
+          tr.removeMark(
+            state.previewRange.from,
+            state.previewRange.from + slice.size,
+            view.state.schema.marks.aiSuggestion
+          );
+        } catch (e) {
+          console.error(e);
+        }
+
+        tr.setMeta(suggestionPluginKey, { type: 'CLEAR_SUGGESTION' });
+        view.dispatch(tr);
+      };
+
+      const SuggestionPlugin = Extension.create({
+        name: 'aiSuggestionPlugin',
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              key: suggestionPluginKey,
+              state: {
+                init() {
+                  return { active: false, originalRange: null, previewRange: null, originalContent: null };
+                },
+                apply(tr, value) {
+                  const action = tr.getMeta(suggestionPluginKey);
+                  if (action?.type === 'CLEAR_SUGGESTION') {
+                    return { active: false, originalRange: null, previewRange: null, originalContent: null };
+                  }
+                  if (action?.type === 'SET_SUGGESTION') {
+                    return { active: true, ...action.payload };
+                  }
+                  if (value.active) {
+                    return {
+                      ...value,
+                      previewRange: {
+                        from: tr.mapping.map(value.previewRange.from, -1),
+                        to: tr.mapping.map(value.previewRange.to, 1),
+                      }
+                    };
+                  }
+                  return value;
+                }
+              },
+              view(editorView) {
+                const controls = document.createElement('div');
+                controls.className = 'fixed z-50 flex gap-2 p-2 bg-white border border-slate-200 shadow-xl rounded-lg pointer-events-auto transition-opacity hidden';
+                controls.innerHTML = `
+                  <button id="ai-inline-reject" class="px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded transition-colors cursor-pointer">Reject</button>
+                  <button id="ai-inline-accept" class="px-3 py-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded shadow-sm transition-colors cursor-pointer">Accept</button>
+                `;
+                document.body.appendChild(controls);
+
+                controls.querySelector('#ai-inline-accept').addEventListener('click', (e) => {
+                  e.preventDefault();
+                  acceptHandler(editorView);
+                });
+                controls.querySelector('#ai-inline-reject').addEventListener('click', (e) => {
+                  e.preventDefault();
+                  rejectHandler(editorView);
+                });
+
+                return {
+                  update(view) {
+                    const state = suggestionPluginKey.getState(view.state);
+                    if (state && state.active && state.previewRange) {
+                      controls.classList.remove('hidden');
+                      try {
+                        const toCoords = view.coordsAtPos(state.previewRange.to);
+                        controls.style.left = `${toCoords.left}px`;
+                        controls.style.top = `${toCoords.bottom + 8}px`;
+                      } catch (e) {
+                        controls.classList.add('hidden');
+                      }
+                    } else {
+                      controls.classList.add('hidden');
+                    }
+                  },
+                  destroy() {
+                    controls.remove();
+                  }
+                };
+              }
+            })
+          ];
+        }
+      });
+
+      return { GlobalShortcuts, SlashCommand, PremiumDragHandle, CtrlArrowBlockJump, convertCustomBlocksRobust, aiSuggestion, SuggestionPlugin, suggestionPluginKey };
     })();
 
     /* ====================== SECTION: AI_LAYER ====================== */
@@ -3432,97 +3236,63 @@ Text:
       const handleRequest = async (action, param) => {
         if (!window.editorInstance) return;
         const editor = window.editorInstance;
-
         const { state } = editor;
+
         let { from, to, empty } = state.selection;
-        let selectedText = state.doc.textBetween(from, to, ' ');
-
-        // Fallback: If no selection, grab the current paragraph/block for context
-        if (empty || !selectedText.trim()) {
+        if (empty) {
           const { $from } = state.selection;
-          const parent = $from.parent;
-
-          // Only if it's a text block (like paragraph, heading)
-          if (parent.isTextblock) {
+          if ($from.parent.isTextblock) {
             from = $from.start();
             to = $from.end();
-            selectedText = state.doc.textBetween(from, to, ' ');
           }
         }
 
-        if (!selectedText && action !== 'continue' && action !== 'write') {
-          alert('Please select some text first.');
-          return;
-        }
+        const selectedText = state.doc.textBetween(from, to, ' ');
+        if (!selectedText && action !== 'continue' && action !== 'write') return;
 
-        UI.aiUI.show();
+        const originalContent = state.doc.slice(from, to).toJSON();
+        const prompt = buildPrompt(action, selectedText, editor.getText(), param);
 
         try {
-          const prompt = buildPrompt(action, selectedText, editor.getText(), param);
-
           const res = await fetch(CONFIG.GEMINI_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }]
-            })
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
           });
-
           const data = await res.json();
           const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
           if (!aiText) throw new Error('No response from AI');
 
-          // Using simple line breaks for preview to match editor feel for raw markdown
-          const previewHTML = aiText.replace(/\n/g, '<br>');
+          const parsedHTML = editor.storage.markdown.parser.parse(aiText);
+          const element = document.createElement('div');
+          element.innerHTML = parsedHTML;
+          const domParser = DOMParser.fromSchema(editor.schema);
+          const parsedContent = domParser.parseSlice(element);
 
-          UI.aiUI.updatePreview(previewHTML);
+          const tr = editor.state.tr;
 
-          UI.aiUI.setSuccess();
-          const userConfirmed = await UI.aiUI.waitForUser();
+          tr.replace(from, to, parsedContent);
+          const insertedSize = parsedContent.size || parsedContent.content?.size || parsedContent.nodeSize || 0;
+          const endPos = from + insertedSize;
 
-          if (userConfirmed) {
-            const chain = editor.chain().focus();
-            // Smart Placement Logic
-            let mode = 'replace';
+          tr.addMark(from, endPos, editor.schema.marks.aiSuggestion.create());
 
-            // If user is just asking a question (short text), replace it with the answer.
-            // If user is selecting a long text (context), append the result (e.g. MCQ based on text).
-            if (action === 'generate-mcq') {
-              if (selectedText.length > 200) mode = 'append';
-              else mode = 'replace';
+          tr.setMeta(PLUGINS.suggestionPluginKey, {
+            type: 'SET_SUGGESTION',
+            payload: {
+              originalRange: { from, to },
+              previewRange: { from, to: endPos },
+              originalContent
             }
-            if (action === 'continue') mode = 'append';
+          });
 
-            if (mode === 'replace') {
-              chain.deleteRange({ from, to });
-            } else {
-              // Append mode: Move to end and ensure separation
-              chain.setTextSelection(to);
-              const endNode = editor.state.doc.nodeAt(to - 1); // Check node before cursor
-              // Insert a break if needed
-              chain.insertContent('\n');
-            }
+          editor.view.dispatch(tr);
 
-            try {
-              chain.insertContent(aiText);
-            } catch (err) {
-              chain.insertContent(aiText);
-            }
-
-            chain.run();
-
-            // Post-process for custom blocks
-            setTimeout(() => {
-              PLUGINS.convertCustomBlocksRobust(editor);
-            }, 50);
-          }
+          setTimeout(() => {
+            PLUGINS.convertCustomBlocksRobust(editor);
+          }, 50);
         } catch (e) {
           console.error(e);
-          UI.aiUI.setError(e.message || 'AI request failed');
-          await UI.aiUI.waitForUser();
-        } finally {
-          UI.aiUI.hide();
         }
       };
 
@@ -3555,7 +3325,6 @@ Text:
           History,
           Dropcursor,
           Gapcursor,
-          Image,
           Link.configure({ openOnClick: false }),
           Youtube.configure({ inline: false }),
           Table.configure({ resizable: true }),
@@ -3570,6 +3339,8 @@ Text:
           PLUGINS.SlashCommand,
           PLUGINS.PremiumDragHandle,
           PLUGINS.CtrlArrowBlockJump,
+          PLUGINS.aiSuggestion,
+          PLUGINS.SuggestionPlugin,
           NODES.Video,
           NODES.CustomImage,
           NODES.FileAttachment,
@@ -3578,7 +3349,6 @@ Text:
           NODES.PageBreak,
           NODES.CustomCodeBlock.configure({ lowlight: CONFIG.lowlight }),
           NODES.Mcq,
-          NODES.AiBlock,
           BubbleMenu.configure({
             element: document.querySelector('#ai-bubble-menu'),
             tippyOptions: { duration: 100 },
