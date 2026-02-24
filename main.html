@@ -787,6 +787,246 @@
       font-size: 0.75rem;
       color: #64748b;
     }
+
+    /* ====================== ASK AI PANEL ====================== */
+    #ask-ai-fab {
+      position: fixed;
+      bottom: 32px;
+      right: 32px;
+      z-index: 60;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
+      color: white;
+      border: none;
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.45);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    #ask-ai-fab:hover {
+      transform: scale(1.08);
+      box-shadow: 0 12px 32px rgba(99, 102, 241, 0.55);
+    }
+
+    #ask-ai-fab:active {
+      transform: scale(0.96);
+    }
+
+    #ask-ai-panel-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      background: rgba(15, 23, 42, 0.35);
+      backdrop-filter: blur(3px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+
+    #ask-ai-panel-overlay.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    #ask-ai-panel {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%) translateY(100%);
+      width: min(680px, 95vw);
+      background: #ffffff;
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+      z-index: 80;
+      padding: 24px 28px 32px;
+      transition: transform 0.3s cubic-bezier(0.34, 1.26, 0.64, 1);
+    }
+
+    #ask-ai-panel.open {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    #ask-ai-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    #ask-ai-panel-header .ai-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    #ask-ai-panel-header .ai-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #0f172a;
+      font-family: var(--font-outfit);
+    }
+
+    #ask-ai-panel-header .ai-subtitle {
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+
+    #ask-ai-panel-close {
+      margin-left: auto;
+      background: #f1f5f9;
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      font-size: 16px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #ask-ai-panel-close:hover {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    .ask-ai-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .ask-ai-chip {
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .ask-ai-chip:hover {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #2563eb;
+    }
+
+    #ask-ai-input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 10px 12px 10px 16px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    #ask-ai-input-row:focus-within {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+      background: #fff;
+    }
+
+    #ask-ai-textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      resize: none;
+      font-family: var(--font-inter);
+      font-size: 0.95rem;
+      color: #1e293b;
+      line-height: 1.5;
+      min-height: 28px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #ask-ai-textarea::placeholder {
+      color: #94a3b8;
+    }
+
+    #ask-ai-send {
+      flex-shrink: 0;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
+      border: none;
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.2s, transform 0.15s;
+      font-size: 18px;
+    }
+
+    #ask-ai-send:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    #ask-ai-send:not(:disabled):hover {
+      transform: scale(1.06);
+    }
+
+    #ask-ai-status {
+      margin-top: 12px;
+      min-height: 20px;
+      font-size: 0.8rem;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ask-ai-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #6366f1;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .ask-ai-mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: #eff6ff;
+      color: #2563eb;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid #bfdbfe;
+    }
   </style>
 </head>
 
@@ -854,6 +1094,43 @@
       </div>
     </div>
   </div>
+  </div>
+
+  <!-- Ask AI FAB Button -->
+  <button id="ask-ai-fab" title="Ask AI (Ctrl+K)">✦</button>
+
+  <!-- Ask AI Panel Overlay -->
+  <div id="ask-ai-panel-overlay"></div>
+
+  <!-- Ask AI Panel -->
+  <div id="ask-ai-panel" role="dialog" aria-label="Ask AI">
+    <div id="ask-ai-panel-header">
+      <div class="ai-icon">✦</div>
+      <div>
+        <div class="ai-title">Ask AI</div>
+        <div class="ai-subtitle" id="ask-ai-mode-label">Generate content at cursor position</div>
+      </div>
+      <button id="ask-ai-panel-close" title="Close (Esc)">✕</button>
+    </div>
+
+    <div class="ask-ai-chips" id="ask-ai-chips">
+      <button class="ask-ai-chip" data-prompt="Write a short introduction about ">✍️ Write intro</button>
+      <button class="ask-ai-chip" data-prompt="Explain the concept of ">💡 Explain concept</button>
+      <button class="ask-ai-chip" data-prompt="Generate 3 MCQ questions about ">❓ Make MCQs</button>
+      <button class="ask-ai-chip" data-prompt="Create a step-by-step guide for ">📋 Step-by-step</button>
+      <button class="ask-ai-chip" data-prompt="Write a summary of ">📝 Summarize</button>
+      <button class="ask-ai-chip" data-prompt="Compare and contrast ">⚖️ Compare</button>
+      <button class="ask-ai-chip" data-prompt="List the key points about ">🔑 Key points</button>
+      <button class="ask-ai-chip" data-prompt="Write a Python example showing ">🐍 Code example</button>
+    </div>
+
+    <div id="ask-ai-input-row">
+      <textarea id="ask-ai-textarea" rows="1" placeholder="Ask anything... (Shift+Enter for new line, Enter to send)"
+        autocomplete="off" spellcheck="true"></textarea>
+      <button id="ask-ai-send" title="Send (Enter)">➤</button>
+    </div>
+
+    <div id="ask-ai-status"></div>
   </div>
 
   <!-- Loading Overlay -->
@@ -2247,6 +2524,7 @@
             'Ctrl-Shift-Enter': () => { AI.handleRequest('continue'); return true; },
             'Ctrl-Shift-m': () => { AI.handleRequest('generate-mcq'); return true; },
             'Ctrl-Shift-g': () => { AI.handleRequest('fix-grammar'); return true; },
+            'Ctrl-k': () => { ASK_AI.open(); return true; },
           }
         }
       });
@@ -2313,6 +2591,7 @@
         {
           title: 'AI Actions',
           items: [
+            { title: 'Ask AI', icon: '✦', description: 'Free-form AI generation', shortcut: 'Ctrl+K', action: editor => ASK_AI.open() },
             { title: 'Continue', icon: '➡️', shortcut: 'Ctrl+Shift+Ent', action: editor => AI.handleRequest('continue') },
             { title: 'Improve Writing', icon: '✨', shortcut: 'Ctrl+Shift+I', action: editor => AI.handleRequest('improve') },
             { title: 'Summarize', icon: '📝', shortcut: 'Ctrl+Shift+U', action: editor => AI.handleRequest('summarize') },
@@ -3029,7 +3308,7 @@
     /* ====================== SECTION: AI_LAYER ====================== */
     const AI = (() => {
 
-      const buildPrompt = (action, selection, fullDoc, param = '') => {
+      const buildPrompt = (action, selection, fullDoc, param = '', directPrompt = '') => {
         const baseSystem = `
       You are an AI writing assistant for a structured rich text editor.
 
@@ -3217,7 +3496,7 @@ Generate structured educational content based on the following instruction.
 Use headings, paragraphs, lists, math, or code if appropriate.
 
 Instruction:
-"${selection}"
+"${directPrompt || selection}"
 `;
             break;
 
@@ -3233,7 +3512,7 @@ Text:
         return `${baseSystem}\n\n${prompt}`;
       };
 
-      const handleRequest = async (action, param) => {
+      const handleRequest = async (action, param, directPrompt = '') => {
         if (!window.editorInstance) return;
         const editor = window.editorInstance;
         const { state } = editor;
@@ -3251,7 +3530,7 @@ Text:
         if (!selectedText && action !== 'continue' && action !== 'write') return;
 
         const originalContent = state.doc.slice(from, to).toJSON();
-        const prompt = buildPrompt(action, selectedText, editor.getText(), param);
+        const prompt = buildPrompt(action, selectedText, editor.getText(), param, directPrompt);
 
         try {
           const res = await fetch(CONFIG.GEMINI_URL, {
@@ -3297,6 +3576,128 @@ Text:
       };
 
       return { handleRequest, buildPrompt };
+    })();
+
+    /* ====================== SECTION: ASK_AI ====================== */
+    const ASK_AI = (() => {
+      const panel = document.getElementById('ask-ai-panel');
+      const overlay = document.getElementById('ask-ai-panel-overlay');
+      const fab = document.getElementById('ask-ai-fab');
+      const textarea = document.getElementById('ask-ai-textarea');
+      const sendBtn = document.getElementById('ask-ai-send');
+      const statusEl = document.getElementById('ask-ai-status');
+      const modeLabel = document.getElementById('ask-ai-mode-label');
+      const chips = document.querySelectorAll('.ask-ai-chip');
+
+      let isOpen = false;
+      let isLoading = false;
+
+      // Auto-resize textarea
+      const autoResize = () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+      };
+
+      const setStatus = (msg, loading = false) => {
+        if (loading) {
+          statusEl.innerHTML = `<div class="ask-ai-spinner"></div><span>${msg}</span>`;
+        } else {
+          statusEl.innerHTML = msg ? `<span>${msg}</span>` : '';
+        }
+      };
+
+      const updateModeLabel = () => {
+        if (!window.editorInstance) return;
+        const editor = window.editorInstance;
+        const { selection } = editor.state;
+        if (!selection.empty) {
+          const selText = editor.state.doc.textBetween(selection.from, selection.to, ' ');
+          const preview = selText.length > 40 ? selText.slice(0, 40) + '…' : selText;
+          modeLabel.innerHTML = `<span class="ask-ai-mode-badge">✏️ Rewrite selection</span> <em class="text-slate-400" style="font-size:0.75rem">${preview}</em>`;
+        } else {
+          modeLabel.textContent = 'Generate content at cursor position';
+        }
+      };
+
+      const open = () => {
+        if (isOpen) return;
+        isOpen = true;
+        panel.classList.add('open');
+        overlay.classList.add('open');
+        updateModeLabel();
+        setTimeout(() => textarea.focus(), 120);
+        setStatus('');
+      };
+
+      const close = () => {
+        if (!isOpen) return;
+        isOpen = false;
+        panel.classList.remove('open');
+        overlay.classList.remove('open');
+        if (window.editorInstance) window.editorInstance.commands.focus();
+      };
+
+      const submit = async () => {
+        const prompt = textarea.value.trim();
+        if (!prompt || isLoading) return;
+
+        if (!window.editorInstance) {
+          setStatus('Editor not ready.');
+          return;
+        }
+
+        isLoading = true;
+        sendBtn.disabled = true;
+        setStatus('Generating...', true);
+
+        try {
+          await AI.handleRequest('write', null, prompt);
+          setStatus('✓ Done! Review the suggestion above.');
+          textarea.value = '';
+          textarea.style.height = 'auto';
+          setTimeout(() => close(), 800);
+        } catch (e) {
+          setStatus('⚠ Something went wrong. Please try again.');
+          console.error(e);
+        } finally {
+          isLoading = false;
+          sendBtn.disabled = false;
+        }
+      };
+
+      // Wire up events
+      fab.addEventListener('click', () => isOpen ? close() : open());
+      overlay.addEventListener('click', close);
+      document.getElementById('ask-ai-panel-close').addEventListener('click', close);
+
+      textarea.addEventListener('input', autoResize);
+
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+      });
+
+      sendBtn.addEventListener('click', submit);
+
+      chips.forEach(chip => {
+        chip.addEventListener('click', () => {
+          textarea.value = chip.dataset.prompt;
+          autoResize();
+          textarea.focus();
+          textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        });
+      });
+
+      // Global shortcut Ctrl+K
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+          e.preventDefault();
+          isOpen ? close() : open();
+        }
+        if (e.key === 'Escape' && isOpen) close();
+      });
+
+      return { open, close };
     })();
 
     /* ====================== SECTION: EDITOR_INIT ====================== */
